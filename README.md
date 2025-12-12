@@ -6,16 +6,15 @@ AI-powered shark and ray detection for BRUV video analysis, with human validatio
 
 ### 1. Install Python (if not already installed)
 
-Download and install Python 3.10+ from https://www.python.org/downloads/
+Download and install [Python 3.10+](https://www.python.org/downloads/)
 
 **Windows users:** Check "Add Python to PATH" during installation!
 
-### 2. Download the Model File
+### 2. Download SharkTrack
 
-Download `sharktrack.pt` (6MB) and place it in the `models/` folder:
-- [Download from original repo](https://github.com/filippovarini/sharktrack/raw/master/models/sharktrack.pt)
+Download and extract the ZIP from this repository (green "Code" button → "Download ZIP")
 
-### 3. Launch SharkTrack
+### 3. Launch
 
 **Windows:** Double-click `START_SHARKTRACK.bat`
 
@@ -37,7 +36,7 @@ First launch will take a few minutes to install dependencies.
 
 ## System Requirements
 
-- **Python 3.8+** (3.10 recommended)
+- [**Python 3.8+**](https://www.python.org/downloads/) (3.10 recommended)
 - **GPU** (optional but recommended) - NVIDIA CUDA or Apple Silicon
 - **RAM**: 8GB minimum, 16GB recommended
 - **Disk**: Space for output files (~10% of video size)

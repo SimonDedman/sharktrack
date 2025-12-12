@@ -15,10 +15,8 @@ __pycache__/
 .vscode/
 *.swp
 
-# Models (large files - download separately)
+# Models - keep sharktrack.pt, exclude user-trained classifiers
 models/species_classifiers/
-models/*.pt
-!models/.gitkeep
 
 # User data (not for repo)
 input_videos/*.mp4
