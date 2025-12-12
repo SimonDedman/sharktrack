@@ -6,7 +6,7 @@ AI-powered shark and ray detection for BRUV video analysis, with human validatio
 
 ### 1. Install Python (if not already installed)
 
-Download and install [Python 3.10+](https://www.python.org/downloads/)
+Download and install [Python 3.11 or 3.12](https://www.python.org/downloads/) (3.13+ may have compatibility issues with ML libraries)
 
 **Windows users:** Check "Add Python to PATH" during installation!
 
@@ -36,7 +36,7 @@ First launch will take a few minutes to install dependencies.
 
 ## System Requirements
 
-- [**Python 3.8+**](https://www.python.org/downloads/) (3.10 recommended)
+- [**Python 3.11 or 3.12**](https://www.python.org/downloads/) (3.13+ may not work with PyTorch/ML libraries yet)
 - **GPU** (optional but recommended) - NVIDIA CUDA or Apple Silicon
 - **RAM**: 8GB minimum, 16GB recommended
 - **Disk**: Space for output files (~10% of video size)
