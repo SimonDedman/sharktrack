@@ -15,8 +15,9 @@ __pycache__/
 .vscode/
 *.swp
 
-# Models - keep sharktrack.pt, exclude user-trained classifiers
-models/species_classifiers/
+# Models - keep sharktrack.pt and stb_classifier, exclude other user-trained classifiers
+models/species_classifiers/*
+!models/species_classifiers/stb_classifier/
 
 # User data (not for repo)
 input_videos/*.mp4

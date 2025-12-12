@@ -1059,26 +1059,112 @@
                 <h2 class="page-title">Species Classifier Training</h2>
                 <p class="page-description">Train a custom species classifier using your validated data to improve future predictions.</p>
 
-                <div class="info-box warning">
-                    <span class="info-box-icon">⚠️</span>
+                <div class="info-box info">
+                    <span class="info-box-icon">💡</span>
                     <div class="info-box-content">
-                        <h4>Advanced Feature</h4>
-                        <p>Classifier training requires validated data for multiple species. We recommend at least 100 validated images per species before training.</p>
+                        <h4>When to Train</h4>
+                        <p>Train a classifier after completing validation to improve Smart Suggestions for future projects. Training can run concurrently with MaxN calculation.</p>
                     </div>
                 </div>
 
+                <!-- Step 1: Prepare Data -->
                 <div class="card">
                     <div class="card-header">
-                        <h3 class="card-title">Training Data</h3>
+                        <h3 class="card-title">Step 1: Prepare Training Data</h3>
                     </div>
 
-                    <p>Prepare training data from your validations:</p>
+                    <p>Extract validated images organized by species/class. This reads your validation CSVs and copies thumbnails into class folders.</p>
 
                     <div class="btn-group">
-                        <button class="btn btn-primary" onclick="prepareTrainingData()">
+                        <button class="btn btn-primary" onclick="prepareTrainingData()" id="btnPrepareData">
                             📦 Prepare Training Data
                         </button>
                     </div>
+
+                    <div id="prepareDataStatus" class="console-output" style="display: none; margin-top: 15px;"></div>
+                </div>
+
+                <!-- Step 2: Review Classes -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Step 2: Review Class Distribution</h3>
+                    </div>
+
+                    <p>Classes found in your validation data:</p>
+
+                    <div id="classDistribution" style="margin: 15px 0;">
+                        <p style="color: var(--text-secondary);">Run "Prepare Training Data" first to see class distribution.</p>
+                    </div>
+
+                    <div class="info-box warning" id="classWarning" style="display: none;">
+                        <span class="info-box-icon">⚠️</span>
+                        <div class="info-box-content">
+                            <h4>Low Sample Classes</h4>
+                            <p id="classWarningText">Some classes have fewer than 50 images. Consider validating more examples or merging similar classes.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Train -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Step 3: Train Classifier</h3>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Training Epochs</label>
+                        <input type="number" class="form-input" id="trainingEpochs" value="25" min="5" max="100">
+                        <div class="help-text">More epochs = better accuracy but longer training. 25 is usually enough.</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Batch Size</label>
+                        <select class="form-input" id="trainingBatchSize">
+                            <option value="8">8 (low memory)</option>
+                            <option value="16" selected>16 (recommended)</option>
+                            <option value="32">32 (high memory/GPU)</option>
+                        </select>
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="trainClassifier()" id="btnTrain">
+                            🎓 Train Classifier
+                        </button>
+                    </div>
+
+                    <div id="trainingStatus" style="margin-top: 15px;">
+                        <div class="progress-container" id="trainingProgress" style="display: none;">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="trainingProgressFill" style="width: 0%"></div>
+                            </div>
+                            <div class="progress-text" id="trainingProgressText">Starting...</div>
+                        </div>
+                        <div class="console-output" id="trainingConsole" style="display: none;"></div>
+                    </div>
+                </div>
+
+                <!-- Results -->
+                <div class="card" id="trainingResults" style="display: none;">
+                    <div class="card-header">
+                        <h3 class="card-title">✅ Training Complete</h3>
+                    </div>
+
+                    <div class="stats-grid">
+                        <div class="stat">
+                            <div class="stat-value" id="resultAccuracy">--</div>
+                            <div class="stat-label">Validation Accuracy</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-value" id="resultClasses">--</div>
+                            <div class="stat-label">Classes</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-value" id="resultImages">--</div>
+                            <div class="stat-label">Training Images</div>
+                        </div>
+                    </div>
+
+                    <p style="margin-top: 15px;">Your classifier is saved and ready for use with Smart Suggestions.</p>
                 </div>
             </div>
 
@@ -1542,8 +1628,171 @@
     }
 
     async function prepareTrainingData() {
-        alert('Preparing training data...');
-        // In production, this would call the API
+        const btn = document.getElementById('btnPrepareData');
+        const statusDiv = document.getElementById('prepareDataStatus');
+        const classDiv = document.getElementById('classDistribution');
+
+        btn.disabled = true;
+        btn.textContent = '⏳ Preparing...';
+        statusDiv.style.display = 'block';
+        statusDiv.innerHTML = '<div class="line">Starting data preparation...</div>';
+
+        try {
+            const response = await fetch('/api/classifier/prepare', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    validation_dir: config.paths.outputResults + '/validation',
+                    output_dir: config.paths.outputResults + '/classifier_training_data'
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                statusDiv.innerHTML = '<div class="line success">✅ Training data prepared successfully!</div>';
+
+                // Display class distribution
+                if (result.class_counts) {
+                    let html = '<table style="width: 100%; border-collapse: collapse;">';
+                    html += '<tr style="border-bottom: 1px solid var(--border);"><th style="text-align: left; padding: 8px;">Class</th><th style="text-align: right; padding: 8px;">Images</th></tr>';
+
+                    const classes = Object.entries(result.class_counts).sort((a, b) => b[1] - a[1]);
+                    let lowSampleClasses = [];
+
+                    for (const [className, count] of classes) {
+                        const rowStyle = count < 50 ? 'color: var(--warning);' : '';
+                        html += `<tr style="${rowStyle}"><td style="padding: 8px;">${className}</td><td style="text-align: right; padding: 8px;">${count}</td></tr>`;
+                        if (count < 50) lowSampleClasses.push(className);
+                    }
+                    html += '</table>';
+                    html += `<p style="margin-top: 10px; color: var(--text-secondary);">Total: ${result.total_images} images across ${classes.length} classes</p>`;
+                    classDiv.innerHTML = html;
+
+                    // Show warning if low sample classes
+                    if (lowSampleClasses.length > 0) {
+                        document.getElementById('classWarning').style.display = 'flex';
+                        document.getElementById('classWarningText').textContent =
+                            `Classes with <50 images: ${lowSampleClasses.join(', ')}. Training may be less accurate for these.`;
+                    }
+
+                    // Store for training
+                    window.trainingClasses = classes.map(c => c[0]);
+                    window.trainingDataDir = result.output_dir;
+                }
+            } else {
+                statusDiv.innerHTML = `<div class="line error">❌ Error: ${result.error}</div>`;
+            }
+        } catch (err) {
+            statusDiv.innerHTML = `<div class="line error">❌ Error: ${err.message}</div>`;
+        }
+
+        btn.disabled = false;
+        btn.textContent = '📦 Prepare Training Data';
+    }
+
+    async function trainClassifier() {
+        if (!window.trainingClasses || window.trainingClasses.length === 0) {
+            alert('Please prepare training data first (Step 1).');
+            return;
+        }
+
+        const btn = document.getElementById('btnTrain');
+        const progressDiv = document.getElementById('trainingProgress');
+        const consoleDiv = document.getElementById('trainingConsole');
+        const epochs = document.getElementById('trainingEpochs').value;
+        const batchSize = document.getElementById('trainingBatchSize').value;
+
+        btn.disabled = true;
+        btn.textContent = '⏳ Training...';
+        progressDiv.style.display = 'block';
+        consoleDiv.style.display = 'block';
+        consoleDiv.innerHTML = '<div class="line">Starting classifier training...</div>';
+
+        try {
+            const response = await fetch('/api/classifier/train', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    training_images: window.trainingDataDir,
+                    class_mapping: window.trainingClasses.join(','),
+                    output_model: 'models/species_classifiers/project_classifier',
+                    epochs: parseInt(epochs),
+                    batch_size: parseInt(batchSize)
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success && result.process_id) {
+                // Poll for progress
+                pollTrainingProgress(result.process_id);
+            } else {
+                consoleDiv.innerHTML += `<div class="line error">❌ Error starting training: ${result.error || 'Unknown error'}</div>`;
+                btn.disabled = false;
+                btn.textContent = '🎓 Train Classifier';
+            }
+        } catch (err) {
+            consoleDiv.innerHTML += `<div class="line error">❌ Error: ${err.message}</div>`;
+            btn.disabled = false;
+            btn.textContent = '🎓 Train Classifier';
+        }
+    }
+
+    async function pollTrainingProgress(processId) {
+        const progressFill = document.getElementById('trainingProgressFill');
+        const progressText = document.getElementById('trainingProgressText');
+        const consoleDiv = document.getElementById('trainingConsole');
+
+        const poll = async () => {
+            try {
+                const response = await fetch(`/api/process/${processId}/status`);
+                const status = await response.json();
+
+                if (status.output) {
+                    // Parse output for epoch progress
+                    const epochMatch = status.output.match(/Epoch (\d+)\/(\d+)/g);
+                    if (epochMatch) {
+                        const lastEpoch = epochMatch[epochMatch.length - 1];
+                        const [current, total] = lastEpoch.match(/\d+/g).map(Number);
+                        const percent = (current / total * 100).toFixed(0);
+                        progressFill.style.width = percent + '%';
+                        progressText.textContent = `Epoch ${current}/${total}`;
+                    }
+
+                    // Show recent output
+                    const lines = status.output.split('\n').slice(-10);
+                    consoleDiv.innerHTML = lines.map(l => `<div class="line">${l}</div>`).join('');
+                }
+
+                if (status.status === 'running') {
+                    setTimeout(poll, 2000);
+                } else if (status.status === 'completed') {
+                    progressFill.style.width = '100%';
+                    progressText.textContent = 'Complete!';
+                    document.getElementById('btnTrain').disabled = false;
+                    document.getElementById('btnTrain').textContent = '🎓 Train Classifier';
+
+                    // Show results
+                    document.getElementById('trainingResults').style.display = 'block';
+                    if (status.metadata) {
+                        document.getElementById('resultAccuracy').textContent =
+                            (status.metadata.best_val_accuracy * 100).toFixed(1) + '%';
+                        document.getElementById('resultClasses').textContent = status.metadata.num_classes;
+                        document.getElementById('resultImages').textContent = status.metadata.num_training_images;
+                    }
+                } else if (status.status === 'failed') {
+                    consoleDiv.innerHTML += `<div class="line error">❌ Training failed</div>`;
+                    document.getElementById('btnTrain').disabled = false;
+                    document.getElementById('btnTrain').textContent = '🎓 Train Classifier';
+                }
+            } catch (err) {
+                console.error('Poll error:', err);
+                setTimeout(poll, 5000);
+            }
+        };
+
+        poll();
     }
 
     // ============================================================================

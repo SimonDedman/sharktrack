@@ -35,6 +35,7 @@ class SharkTrackProcess:
         self.status = "initializing"
         self.progress = 0
         self.start_time = time.time()
+        self.env = None  # Optional custom environment
 
     def start(self):
         """Start the SharkTrack process"""
@@ -44,7 +45,8 @@ class SharkTrackProcess:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 universal_newlines=True,
-                bufsize=1
+                bufsize=1,
+                env=self.env  # Use custom environment if set
             )
             self.status = "running"
 
@@ -291,10 +293,135 @@ def analyze_deployment():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/classifier/prepare', methods=['POST'])
+def prepare_classifier_data():
+    """Prepare training data from validation results"""
+    import glob
+    import csv
+    import shutil
+    from collections import defaultdict
+
+    data = request.json
+    validation_dir = data.get('validation_dir', '')
+    output_dir = data.get('output_dir', '')
+
+    if not validation_dir or not output_dir:
+        return jsonify({'error': 'Missing validation_dir or output_dir'}), 400
+
+    try:
+        # Find validation CSV files
+        csv_files = glob.glob(os.path.join(validation_dir, 'validation_results_*.csv'))
+        if not csv_files:
+            return jsonify({'error': f'No validation CSV files found in {validation_dir}'}), 400
+
+        # Use most recent
+        csv_file = sorted(csv_files)[-1]
+        thumbnails_dir = os.path.join(validation_dir, 'thumbnails')
+
+        # Species normalization map
+        species_normalize = {
+            'g. cirratum': 'Ginglymostoma_cirratum',
+            'ginglymostoma cirratum': 'Ginglymostoma_cirratum',
+            'c. perezi': 'Carcharhinus_perezi',
+            'carcharhinus perezi': 'Carcharhinus_perezi',
+            'c. acronotus': 'Carcharhinus_acronotus',
+            'carcharhinus acronotus': 'Carcharhinus_acronotus',
+            'c. limbatus': 'Carcharhinus_limbatus',
+            'carcharhinus limbatus': 'Carcharhinus_limbatus',
+        }
+
+        # Taxon group to class map for FALSE detections
+        taxon_group_map = {
+            'teleost': 'FALSE_teleost',
+            'human_diver': 'FALSE_human',
+            'boat_equipment': 'FALSE_equipment',
+            'surface_plant': 'FALSE_plant',
+            'benthic_plant': 'FALSE_plant',
+            'shadow_reflection': 'FALSE_artifact',
+            'video_artifact': 'FALSE_artifact',
+            'debris': 'FALSE_debris',
+            'invertebrate': 'FALSE_invertebrate',
+            'other': 'FALSE_other',
+        }
+
+        class_counts = defaultdict(int)
+        errors = []
+
+        # Create output directory
+        os.makedirs(output_dir, exist_ok=True)
+
+        with open(csv_file, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                true_detection = row.get('true_detection', '').strip().lower()
+                group = row.get('taxon_group', '').strip()
+                species = row.get('species', '').strip()
+                thumbnail = row.get('thumbnail', '').strip()
+
+                if not true_detection or not thumbnail:
+                    continue
+
+                # Find thumbnail
+                thumb_path = os.path.join(thumbnails_dir, thumbnail)
+                if not os.path.exists(thumb_path):
+                    continue
+
+                # Determine class
+                if true_detection == 'true':
+                    if species:
+                        species_lower = species.lower()
+                        class_name = species_normalize.get(species_lower,
+                            species.replace(' ', '_').replace('.', '_'))
+                    elif group:
+                        class_name = f"UNKNOWN_{group}"
+                    else:
+                        class_name = "UNKNOWN_elasmobranch"
+                elif true_detection == 'false':
+                    group_lower = group.lower() if group else ''
+                    if group_lower in taxon_group_map:
+                        class_name = taxon_group_map[group_lower]
+                    elif species:
+                        class_name = f"FALSE_{species.replace(' ', '_')}"
+                    elif group:
+                        class_name = f"FALSE_{group}"
+                    else:
+                        class_name = "FALSE_other"
+                else:
+                    continue
+
+                # Copy to class folder
+                class_dir = os.path.join(output_dir, class_name)
+                os.makedirs(class_dir, exist_ok=True)
+                dst_path = os.path.join(class_dir, thumbnail)
+
+                try:
+                    if not os.path.exists(dst_path):
+                        shutil.copy2(thumb_path, dst_path)
+                    class_counts[class_name] += 1
+                except Exception as e:
+                    errors.append(f"{thumbnail}: {e}")
+
+        return jsonify({
+            'success': True,
+            'class_counts': dict(class_counts),
+            'total_images': sum(class_counts.values()),
+            'output_dir': output_dir,
+            'source_csv': csv_file,
+            'errors': errors[:10] if errors else []
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/classifier/train', methods=['POST'])
 def train_classifier():
     """Train a species classifier"""
     data = request.json
+
+    # Force CPU training to avoid GPU compatibility issues
+    env = os.environ.copy()
+    env['CUDA_VISIBLE_DEVICES'] = ''
 
     command = [
         'python3', 'utils/train_species_classifier.py',
@@ -312,6 +439,7 @@ def train_classifier():
     # Start training in background
     process_id = f"training_{int(time.time())}"
     process = SharkTrackProcess(process_id, command, data['output_model'])
+    process.env = env  # Add environment to process
 
     with process_lock:
         running_processes[process_id] = process

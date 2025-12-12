@@ -55,6 +55,22 @@ FALSE_CATEGORY_MAP = {
     'surface wave': 'FALSE_other',
 }
 
+# Map taxon_group values from validation CSV to class names
+TAXON_GROUP_MAP = {
+    'shark': 'UNKNOWN_shark',
+    'ray_skate': 'UNKNOWN_ray',
+    'teleost': 'FALSE_teleost',
+    'human_diver': 'FALSE_human',
+    'boat_equipment': 'FALSE_equipment',
+    'surface_plant': 'FALSE_plant',
+    'benthic_plant': 'FALSE_plant',
+    'shadow_reflection': 'FALSE_artifact',
+    'video_artifact': 'FALSE_artifact',
+    'debris': 'FALSE_debris',
+    'invertebrate': 'FALSE_invertebrate',
+    'other': 'FALSE_other',
+}
+
 # Normalize species names to standard format
 SPECIES_NORMALIZE = {
     # Nurse shark variants
@@ -184,19 +200,27 @@ def load_new_validation():
                 if species:
                     class_name = sanitize_class_name(species)
                 elif group:
-                    class_name = f"UNKNOWN_{sanitize_class_name(group)}"
+                    # Use TAXON_GROUP_MAP for unmapped groups (shark, ray_skate)
+                    group_lower = group.lower()
+                    if group_lower in TAXON_GROUP_MAP:
+                        class_name = TAXON_GROUP_MAP[group_lower]
+                    else:
+                        class_name = f"UNKNOWN_{sanitize_class_name(group)}"
                 else:
                     class_name = "UNKNOWN_elasmobranch"
             elif true_detection == 'false':
-                # For FALSE detections, use species if available, else group
-                label = species if species else group
-                if label:
-                    # Check if already normalized to a FALSE_ class
-                    normalized = sanitize_class_name(label)
+                # For FALSE detections, use taxon_group mapping first, then species
+                group_lower = group.lower() if group else ''
+                if group_lower in TAXON_GROUP_MAP:
+                    class_name = TAXON_GROUP_MAP[group_lower]
+                elif species:
+                    normalized = sanitize_class_name(species)
                     if normalized.startswith('FALSE_'):
                         class_name = normalized
                     else:
                         class_name = f"FALSE_{normalized}"
+                elif group:
+                    class_name = f"FALSE_{sanitize_class_name(group)}"
                 else:
                     class_name = "FALSE_other"
             else:
