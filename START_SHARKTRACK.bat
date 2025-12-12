@@ -109,24 +109,23 @@ if not exist "sharktrack_config.json" (
 
 echo.
 echo ==========================================
-echo Starting SharkTrack Web Interface...
+echo SharkTrack is ready!
 echo ==========================================
 echo.
-echo Press Ctrl+C to stop the server
-echo ==========================================
+echo Open this URL in your browser:
 echo.
-
-REM Open browser after a delay (more reliable than Python's webbrowser on Windows)
-start "" cmd /c "timeout /t 4 /nobreak >nul && start http://localhost:5000"
-
-REM Start the web GUI (with --no-browser since we handle it above)
-python start_sharktrack.py --no-browser
-
-echo.
-echo ==========================================
-echo If your browser didn't open, go to:
 echo    http://localhost:5000
+echo.
+echo (Keep this window open - it runs the server)
+echo (Press Ctrl+C to stop)
 echo ==========================================
+echo.
+
+REM Try to open browser automatically
+start http://localhost:5000
+
+REM Start the web GUI
+python start_sharktrack.py --no-browser
 
 REM If the above fails, try the old method
 if errorlevel 1 (
