@@ -112,15 +112,21 @@ echo ==========================================
 echo Starting SharkTrack Web Interface...
 echo ==========================================
 echo.
-echo Your browser will open automatically.
-echo If not, navigate to: http://localhost:5000
-echo.
 echo Press Ctrl+C to stop the server
 echo ==========================================
 echo.
 
-REM Start the web GUI
-python start_sharktrack.py
+REM Open browser after a delay (more reliable than Python's webbrowser on Windows)
+start "" cmd /c "timeout /t 4 /nobreak >nul && start http://localhost:5000"
+
+REM Start the web GUI (with --no-browser since we handle it above)
+python start_sharktrack.py --no-browser
+
+echo.
+echo ==========================================
+echo If your browser didn't open, go to:
+echo    http://localhost:5000
+echo ==========================================
 
 REM If the above fails, try the old method
 if errorlevel 1 (

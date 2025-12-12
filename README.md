@@ -25,8 +25,9 @@ Download and extract the ZIP from this repository (green "Code" button → "Down
 **Linux:** Run `./launch_gui.sh`
 
 Your browser will open automatically to the Control Panel.
+If it doesn't, open **http://localhost:5000** in your browser.
 
-First launch will take a few minutes to install dependencies.
+First launch will take 5-10 minutes to install dependencies (~8 GB).
 
 ## What SharkTrack Does
 
