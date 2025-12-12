@@ -4,18 +4,28 @@ AI-powered shark and ray detection for BRUV video analysis, with human validatio
 
 ## Quick Start
 
-### Windows
-Double-click `START_SHARKTRACK.bat`
+### 1. Install Python (if not already installed)
 
-### Mac
-Double-click `START_SHARKTRACK.command`
+Download and install Python 3.10+ from https://www.python.org/downloads/
 
-### Linux
-```bash
-./launch_gui.sh
-```
+**Windows users:** Check "Add Python to PATH" during installation!
+
+### 2. Download the Model File
+
+Download `sharktrack.pt` (6MB) and place it in the `models/` folder:
+- [Download from original repo](https://github.com/filippovarini/sharktrack/raw/master/models/sharktrack.pt)
+
+### 3. Launch SharkTrack
+
+**Windows:** Double-click `START_SHARKTRACK.bat`
+
+**Mac:** Double-click `START_SHARKTRACK.command`
+
+**Linux:** Run `./launch_gui.sh`
 
 Your browser will open automatically to the Control Panel.
+
+First launch will take a few minutes to install dependencies.
 
 ## What SharkTrack Does
 
@@ -115,7 +125,7 @@ Check your Video Collections mapping in Project Setup - the paths must match you
 
 ## Attribution
 
-SharkTrack is based on [MoveTrack](https://github.com/filippovarini/movetrack) by Filippo Varini.
+SharkTrack is based on [MoveTrack](https://github.com/filippovarini/sharktrack) by Filippo Varini.
 
 ## License
 
@@ -123,4 +133,4 @@ GPL-3.0
 
 ---
 
-For detailed documentation, see the `docs/` folder or visit the [GitHub repository](https://github.com/filippovarini/sharktrack).
+For detailed documentation, see the `docs/` folder or visit the [GitHub repository](https://github.com/SimonDedman/sharktrack).
