@@ -1,0 +1,11 @@
+ultralytics==8.1.47
+av>=13.0.0
+opencv-python==4.9.0.80
+numpy<2.0
+pandas>=2.2.0
+lapx==0.5.5
+dill==0.3.8
+click
+tqdm
+torch>=2.0.0
+torchvision>=0.21.0

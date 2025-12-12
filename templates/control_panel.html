@@ -1,0 +1,1637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SharkTrack Control Panel</title>
+    <style>
+        :root {
+            --primary: #2c3e50;
+            --primary-light: #34495e;
+            --accent: #3498db;
+            --success: #27ae60;
+            --warning: #f39c12;
+            --danger: #e74c3c;
+            --purple: #9b59b6;
+            --bg: #f5f7fa;
+            --card-bg: #ffffff;
+            --text: #2c3e50;
+            --text-muted: #7f8c8d;
+            --border: #e0e0e0;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .header-btn {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .header-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        /* Main Layout */
+        .main-container {
+            display: flex;
+            min-height: calc(100vh - 70px);
+        }
+
+        /* Sidebar Navigation */
+        .sidebar {
+            width: 280px;
+            background: var(--card-bg);
+            border-right: 1px solid var(--border);
+            padding: 20px 0;
+        }
+
+        .nav-section {
+            margin-bottom: 25px;
+        }
+
+        .nav-section-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            padding: 0 20px;
+            margin-bottom: 10px;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .nav-item:hover {
+            background: var(--bg);
+        }
+
+        .nav-item.active {
+            background: #e8f4fc;
+            border-left-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .nav-item.completed .nav-icon {
+            background: var(--success);
+            color: white;
+        }
+
+        .nav-item.in-progress .nav-icon {
+            background: var(--warning);
+            color: white;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .nav-icon {
+            width: 28px;
+            height: 28px;
+            background: var(--bg);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
+        .nav-label {
+            flex: 1;
+            font-size: 14px;
+        }
+
+        .nav-status {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: var(--bg);
+        }
+
+        .nav-status.ready { background: #d5f5e3; color: #1e8449; }
+        .nav-status.running { background: #fdebd0; color: #b9770e; }
+        .nav-status.needs-setup { background: #fadbd8; color: #922b21; }
+
+        /* Content Area */
+        .content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+
+        .page {
+            display: none;
+            max-width: 900px;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        .page-title {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .page-description {
+            color: var(--text-muted);
+            margin-bottom: 30px;
+            font-size: 15px;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .card-badge {
+            font-size: 12px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            background: var(--bg);
+        }
+
+        /* Info Boxes */
+        .info-box {
+            padding: 16px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 12px;
+        }
+
+        .info-box.info {
+            background: #e8f4fc;
+            border-left: 4px solid var(--accent);
+        }
+
+        .info-box.success {
+            background: #d5f5e3;
+            border-left: 4px solid var(--success);
+        }
+
+        .info-box.warning {
+            background: #fef9e7;
+            border-left: 4px solid var(--warning);
+        }
+
+        .info-box.tip {
+            background: #f4ecf7;
+            border-left: 4px solid var(--purple);
+        }
+
+        .info-box-icon {
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .info-box-content h4 {
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .info-box-content p {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin: 0;
+        }
+
+        /* Form Elements */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 6px;
+        }
+
+        .form-hint {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .form-input.with-button {
+            display: flex;
+            gap: 10px;
+        }
+
+        .form-input.with-button input {
+            flex: 1;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 14px;
+        }
+
+        .browse-btn {
+            padding: 10px 20px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .browse-btn:hover {
+            background: var(--primary-light);
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #219a52;
+        }
+
+        .btn-secondary {
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: #e8e8e8;
+        }
+
+        .btn-lg {
+            padding: 16px 32px;
+            font-size: 16px;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+        }
+
+        /* Progress */
+        .progress-bar {
+            height: 8px;
+            background: var(--bg);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+
+        .progress-fill.success { background: var(--success); }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: var(--bg);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        /* Log Output */
+        .log-output {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 12px;
+            padding: 15px;
+            border-radius: 8px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .log-output .log-info { color: #3498db; }
+        .log-output .log-success { color: #2ecc71; }
+        .log-output .log-warning { color: #f39c12; }
+        .log-output .log-error { color: #e74c3c; }
+
+        /* Collapsible Sections */
+        .collapsible {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+
+        .collapsible-header {
+            padding: 15px 20px;
+            background: var(--bg);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 8px;
+        }
+
+        .collapsible-header:hover {
+            background: #e8e8e8;
+        }
+
+        .collapsible-content {
+            padding: 20px;
+            display: none;
+        }
+
+        .collapsible.open .collapsible-content {
+            display: block;
+        }
+
+        .collapsible.open .collapsible-header {
+            border-radius: 8px 8px 0 0;
+        }
+
+        /* Steps List */
+        .steps-list {
+            list-style: none;
+            counter-reset: step;
+        }
+
+        .steps-list li {
+            position: relative;
+            padding-left: 50px;
+            padding-bottom: 25px;
+            border-left: 2px solid var(--border);
+            margin-left: 15px;
+        }
+
+        .steps-list li:last-child {
+            border-left-color: transparent;
+        }
+
+        .steps-list li::before {
+            counter-increment: step;
+            content: counter(step);
+            position: absolute;
+            left: -16px;
+            top: 0;
+            width: 30px;
+            height: 30px;
+            background: var(--accent);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .steps-list h4 {
+            margin-bottom: 8px;
+        }
+
+        .steps-list p {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        /* Path Display */
+        .path-display {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 15px;
+            background: var(--bg);
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 13px;
+            margin-bottom: 10px;
+        }
+
+        .path-display .path-icon {
+            color: var(--text-muted);
+        }
+
+        .path-display.valid {
+            background: #d5f5e3;
+            border: 1px solid #27ae60;
+        }
+
+        .path-display.invalid {
+            background: #fadbd8;
+            border: 1px solid #e74c3c;
+        }
+
+        /* System Info */
+        .system-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .system-info-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: var(--bg);
+            border-radius: 8px;
+        }
+
+        .system-info-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--primary);
+            color: white;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .system-info-icon.gpu { background: var(--success); }
+        .system-info-icon.no-gpu { background: var(--warning); }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.visible {
+            display: flex;
+        }
+
+        .modal {
+            background: white;
+            border-radius: 12px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            padding: 20px 25px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: var(--text-muted);
+        }
+
+        .modal-body {
+            padding: 25px;
+        }
+
+        .modal-footer {
+            padding: 15px 25px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        /* Hidden utility */
+        .hidden { display: none !important; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .main-container {
+                flex-direction: column;
+            }
+            .sidebar {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <h1>
+            <span style="font-size: 32px;">🦈</span>
+            SharkTrack Control Panel
+        </h1>
+        <div class="header-actions">
+            <button class="header-btn" onclick="showModal('helpModal')">
+                ❓ Help
+            </button>
+            <button class="header-btn" onclick="showModal('settingsModal')">
+                ⚙️ Settings
+            </button>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar">
+            <div class="nav-section">
+                <div class="nav-section-title">Setup</div>
+                <div class="nav-item active" data-page="setup" onclick="showPage('setup')">
+                    <span class="nav-icon">1</span>
+                    <span class="nav-label">Project Setup</span>
+                    <span class="nav-status needs-setup" id="status-setup">Needs Setup</span>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Analysis Pipeline</div>
+                <div class="nav-item" data-page="detection" onclick="showPage('detection')">
+                    <span class="nav-icon">2</span>
+                    <span class="nav-label">Detection</span>
+                    <span class="nav-status" id="status-detection">Waiting</span>
+                </div>
+                <div class="nav-item" data-page="validation-prep" onclick="showPage('validation-prep')">
+                    <span class="nav-icon">3</span>
+                    <span class="nav-label">Validation Prep</span>
+                    <span class="nav-status" id="status-validation-prep">Waiting</span>
+                </div>
+                <div class="nav-item" data-page="validation" onclick="showPage('validation')">
+                    <span class="nav-icon">4</span>
+                    <span class="nav-label">Human Validation</span>
+                    <span class="nav-status" id="status-validation">Waiting</span>
+                </div>
+                <div class="nav-item" data-page="maxn" onclick="showPage('maxn')">
+                    <span class="nav-icon">5</span>
+                    <span class="nav-label">MaxN Calculation</span>
+                    <span class="nav-status" id="status-maxn">Waiting</span>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Advanced</div>
+                <div class="nav-item" data-page="classifier" onclick="showPage('classifier')">
+                    <span class="nav-icon">🧠</span>
+                    <span class="nav-label">Classifier Training</span>
+                    <span class="nav-status">Optional</span>
+                </div>
+                <div class="nav-item" data-page="system" onclick="showPage('system')">
+                    <span class="nav-icon">💻</span>
+                    <span class="nav-label">System Info</span>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Content Area -->
+        <main class="content">
+            <!-- Page 1: Setup -->
+            <div class="page active" id="page-setup">
+                <h2 class="page-title">Project Setup</h2>
+                <p class="page-description">Configure your project paths and settings. These are saved locally on your machine.</p>
+
+                <div class="info-box info">
+                    <span class="info-box-icon">💡</span>
+                    <div class="info-box-content">
+                        <h4>First Time Setup</h4>
+                        <p>Point SharkTrack to your video files and choose where to save results. This only needs to be done once per project.</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Project Information</h3>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Your Name / Initials</label>
+                        <input type="text" class="form-input" id="userName" placeholder="e.g., TG or Tristan"
+                               onchange="saveConfig()">
+                        <p class="form-hint">Used to identify your validation exports (e.g., validation_results_TG.csv)</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Project Name</label>
+                        <input type="text" class="form-input" id="projectName" placeholder="e.g., Turneffe Atoll Summer 2024"
+                               onchange="saveConfig()">
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">File Locations</h3>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Input Videos Folder</label>
+                        <div class="form-input with-button">
+                            <input type="text" id="inputVideosPath" placeholder="/path/to/BRUV_videos"
+                                   onchange="validatePath(this, 'inputVideos'); saveConfig()">
+                            <button class="browse-btn" onclick="browsePath('inputVideosPath')">Browse...</button>
+                        </div>
+                        <p class="form-hint">Root folder containing your BRUV video files</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Output Results Folder</label>
+                        <div class="form-input with-button">
+                            <input type="text" id="outputResultsPath" placeholder="/path/to/SharkTrack_Results"
+                                   onchange="validatePath(this, 'outputResults'); saveConfig()">
+                            <button class="browse-btn" onclick="browsePath('outputResultsPath')">Browse...</button>
+                        </div>
+                        <p class="form-hint">Where SharkTrack will save detection results, thumbnails, and validation files</p>
+                    </div>
+
+                    <div class="info-box tip">
+                        <span class="info-box-icon">📁</span>
+                        <div class="info-box-content">
+                            <h4>Working with Shared Drives</h4>
+                            <p>If multiple people are validating, each person configures their own paths here. The same folder might be "D:\BRUV" on Windows or "/media/simon/BRUV" on Linux - that's OK!</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Video Collections</h3>
+                        <button class="btn btn-secondary" onclick="addVideoCollection()">+ Add Collection</button>
+                    </div>
+
+                    <p style="color: var(--text-muted); margin-bottom: 15px; font-size: 14px;">
+                        Map your collection names to their folder locations. This is needed to open videos from validation thumbnails.
+                    </p>
+
+                    <div id="videoCollections">
+                        <!-- Dynamically populated -->
+                    </div>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-primary btn-lg" onclick="saveAndContinue()">
+                        Save & Continue →
+                    </button>
+                </div>
+            </div>
+
+            <!-- Page 2: Detection -->
+            <div class="page" id="page-detection">
+                <h2 class="page-title">Video Detection</h2>
+                <p class="page-description">Run SharkTrack's AI detector on your BRUV videos to find sharks, rays, and other marine life.</p>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Detection Settings</h3>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Confidence Threshold</label>
+                        <input type="range" min="0.1" max="0.9" step="0.05" value="0.25" id="confThreshold"
+                               oninput="document.getElementById('confValue').textContent = this.value"
+                               onchange="saveConfig()">
+                        <span id="confValue" style="margin-left: 10px;">0.25</span>
+                        <p class="form-hint">Lower = more detections (but more false positives). Recommended: 0.25</p>
+                    </div>
+
+                    <div class="collapsible">
+                        <div class="collapsible-header" onclick="toggleCollapsible(this)">
+                            <span>Advanced Options</span>
+                            <span>▼</span>
+                        </div>
+                        <div class="collapsible-content">
+                            <div class="form-group">
+                                <label class="form-label">
+                                    <input type="checkbox" id="autoSkipDeployment" checked onchange="saveConfig()">
+                                    Auto-skip deployment/retrieval phases
+                                </label>
+                                <p class="form-hint">Automatically detect and skip the first/last parts of video where BRUV is being deployed</p>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">
+                                    <input type="checkbox" id="resumeProcessing" onchange="saveConfig()">
+                                    Resume from previous run
+                                </label>
+                                <p class="form-hint">Skip videos that have already been processed</p>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Stereo Prefix (optional)</label>
+                                <input type="text" class="form-input" id="stereoPrefix" placeholder="e.g., L_ or R_"
+                                       onchange="saveConfig()">
+                                <p class="form-hint">If using stereo BRUVs, only process videos starting with this prefix</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Run Detection</h3>
+                    </div>
+
+                    <div class="stats-grid" id="detectionStats">
+                        <div class="stat-card">
+                            <div class="stat-value" id="videosTotal">0</div>
+                            <div class="stat-label">Videos Found</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="videosProcessed">0</div>
+                            <div class="stat-label">Processed</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="tracksFound">0</div>
+                            <div class="stat-label">Tracks Found</div>
+                        </div>
+                    </div>
+
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="detectionProgress" style="width: 0%"></div>
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-success btn-lg" id="startDetectionBtn" onclick="startDetection()">
+                            ▶️ Start Detection
+                        </button>
+                        <button class="btn btn-secondary" id="stopDetectionBtn" onclick="stopDetection()" disabled>
+                            ⏹️ Stop
+                        </button>
+                    </div>
+
+                    <div class="log-output" id="detectionLog" style="margin-top: 20px; display: none;">
+                        Waiting to start...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Page 3: Validation Prep -->
+            <div class="page" id="page-validation-prep">
+                <h2 class="page-title">Validation Preparation</h2>
+                <p class="page-description">Generate thumbnails and the validation interface from detection results.</p>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Generate Thumbnails</h3>
+                    </div>
+
+                    <p style="margin-bottom: 20px;">
+                        This extracts a thumbnail image for each detected track, creating a visual interface for human validation.
+                    </p>
+
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="totalTracks">0</div>
+                            <div class="stat-label">Tracks to Review</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="thumbnailsGenerated">0</div>
+                            <div class="stat-label">Thumbnails Ready</div>
+                        </div>
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-success btn-lg" onclick="generateThumbnails()">
+                            🖼️ Generate Thumbnails & Validation Page
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Page 4: Human Validation -->
+            <div class="page" id="page-validation">
+                <h2 class="page-title">Human Validation</h2>
+                <p class="page-description">Review detection results and verify species identifications.</p>
+
+                <div class="info-box info">
+                    <span class="info-box-icon">🔄</span>
+                    <div class="info-box-content">
+                        <h4>The Iterative Validation Process</h4>
+                        <p>Validation works best as a cycle: Review some tracks → Export → Run Smart Suggestions → Regenerate HTML → Review with predictions. Each round gets faster!</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">How Validation Works</h3>
+                    </div>
+
+                    <ol class="steps-list">
+                        <li>
+                            <h4>Review Thumbnails</h4>
+                            <p>Look at each detection and mark whether it's a TRUE animal sighting or FALSE positive (debris, reflection, etc.)</p>
+                        </li>
+                        <li>
+                            <h4>Identify Species</h4>
+                            <p>For TRUE detections, select the taxonomic group (Shark, Ray, etc.) and species. Use the autocomplete to find species quickly.</p>
+                        </li>
+                        <li>
+                            <h4>Use Batch Tagging</h4>
+                            <p>Select multiple similar tracks (e.g., all clearly false positives) and apply labels to all at once. Huge time saver!</p>
+                        </li>
+                        <li>
+                            <h4>Export Your Progress</h4>
+                            <p>Click "Export CSV" regularly to save your work. Name it with your initials (e.g., validation_results_TG.csv)</p>
+                        </li>
+                        <li>
+                            <h4>Get Smart Suggestions</h4>
+                            <p>After validating some tracks, run "Update Smart Predictions". The AI learns from your labels and suggests species for similar unvalidated tracks.</p>
+                        </li>
+                    </ol>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Validation Progress</h3>
+                    </div>
+
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="validatedCount">0</div>
+                            <div class="stat-label">Validated</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="remainingCount">0</div>
+                            <div class="stat-label">Remaining</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="trueDetections">0</div>
+                            <div class="stat-label">True Detections</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="precisionRate">-</div>
+                            <div class="stat-label">Precision</div>
+                        </div>
+                    </div>
+
+                    <div class="progress-bar">
+                        <div class="progress-fill success" id="validationProgress" style="width: 0%"></div>
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-primary btn-lg" onclick="openValidation()">
+                            📋 Open Validation Interface
+                        </button>
+                        <button class="btn btn-secondary" onclick="updateSmartPredictions()">
+                            🧠 Update Smart Predictions
+                        </button>
+                        <button class="btn btn-secondary" onclick="regenerateValidationHTML()">
+                            🔄 Regenerate with Predictions
+                        </button>
+                    </div>
+                </div>
+
+                <div class="info-box tip">
+                    <span class="info-box-icon">⚡</span>
+                    <div class="info-box-content">
+                        <h4>Pro Tip: Batch Tagging</h4>
+                        <p>Filter to "High confidence" detections first - these are usually correct and can be batch-validated quickly. Then work through medium and low confidence detections where the AI is less certain.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Page 5: MaxN -->
+            <div class="page" id="page-maxn">
+                <h2 class="page-title">MaxN Calculation</h2>
+                <p class="page-description">Calculate MaxN (maximum number of individuals per species per video) from your validated results.</p>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Calculate MaxN</h3>
+                    </div>
+
+                    <p style="margin-bottom: 20px;">
+                        MaxN is the standard metric for BRUV analysis - the maximum number of individuals of each species visible in a single frame of video.
+                    </p>
+
+                    <div class="form-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="aggregateChapters" onchange="saveConfig()">
+                            Aggregate across video chapters
+                        </label>
+                        <p class="form-hint">If your videos are split into chapters (e.g., GoPro chapters), combine them for MaxN calculation</p>
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-success btn-lg" onclick="calculateMaxN()">
+                            📊 Calculate MaxN
+                        </button>
+                        <button class="btn btn-secondary" onclick="viewMaxNResults()">
+                            📁 View Results
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Page 6: Classifier Training -->
+            <div class="page" id="page-classifier">
+                <h2 class="page-title">Species Classifier Training</h2>
+                <p class="page-description">Train a custom species classifier using your validated data to improve future predictions.</p>
+
+                <div class="info-box warning">
+                    <span class="info-box-icon">⚠️</span>
+                    <div class="info-box-content">
+                        <h4>Advanced Feature</h4>
+                        <p>Classifier training requires validated data for multiple species. We recommend at least 100 validated images per species before training.</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Training Data</h3>
+                    </div>
+
+                    <p>Prepare training data from your validations:</p>
+
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="prepareTrainingData()">
+                            📦 Prepare Training Data
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Page 7: System Info -->
+            <div class="page" id="page-system">
+                <h2 class="page-title">System Information</h2>
+                <p class="page-description">Check your system capabilities and SharkTrack installation.</p>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Hardware</h3>
+                    </div>
+
+                    <div class="system-info" id="systemInfo">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Configuration</h3>
+                    </div>
+
+                    <p style="margin-bottom: 15px;">Current configuration (stored locally in your browser):</p>
+
+                    <pre id="configDisplay" style="background: var(--bg); padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 12px;"></pre>
+
+                    <div class="btn-group">
+                        <button class="btn btn-secondary" onclick="exportConfig()">
+                            📤 Export Config
+                        </button>
+                        <button class="btn btn-secondary" onclick="importConfig()">
+                            📥 Import Config
+                        </button>
+                        <button class="btn btn-secondary" onclick="resetConfig()">
+                            🔄 Reset to Defaults
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Help Modal -->
+    <div class="modal-overlay" id="helpModal" onclick="if(event.target===this) hideModal('helpModal')">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title">SharkTrack Help</h3>
+                <button class="modal-close" onclick="hideModal('helpModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <h4>Quick Start</h4>
+                <ol style="margin: 15px 0; padding-left: 20px;">
+                    <li>Set up your project paths in <strong>Project Setup</strong></li>
+                    <li>Run <strong>Detection</strong> on your videos</li>
+                    <li>Generate thumbnails in <strong>Validation Prep</strong></li>
+                    <li>Review detections in <strong>Human Validation</strong></li>
+                    <li>Calculate metrics in <strong>MaxN Calculation</strong></li>
+                </ol>
+
+                <h4>Getting Help</h4>
+                <p style="margin: 10px 0;">
+                    <a href="https://github.com/filippovarini/sharktrack" target="_blank">GitHub Repository</a> - Report issues and view documentation
+                </p>
+
+                <h4>Keyboard Shortcuts</h4>
+                <ul style="margin: 15px 0; padding-left: 20px;">
+                    <li><kbd>1-5</kbd> - Jump to workflow step</li>
+                    <li><kbd>?</kbd> - Show this help</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settingsModal" onclick="if(event.target===this) hideModal('settingsModal')">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title">Settings</h3>
+                <button class="modal-close" onclick="hideModal('settingsModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Server Port</label>
+                    <input type="number" class="form-input" id="serverPort" value="5000">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">
+                        <input type="checkbox" id="autoOpenBrowser" checked>
+                        Auto-open browser on start
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideModal('settingsModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // ============================================================================
+    // State Management
+    // ============================================================================
+
+    const CONFIG_KEY = 'sharktrack_config';
+    const STATE_KEY = 'sharktrack_state';
+
+    let config = loadConfig();
+    let state = loadState();
+
+    function loadConfig() {
+        const saved = localStorage.getItem(CONFIG_KEY);
+        if (saved) {
+            try {
+                return JSON.parse(saved);
+            } catch (e) {
+                console.error('Failed to parse config:', e);
+            }
+        }
+        return getDefaultConfig();
+    }
+
+    function getDefaultConfig() {
+        return {
+            project: {
+                name: '',
+                userId: ''
+            },
+            paths: {
+                inputVideos: '',
+                outputResults: '',
+                videoCollections: {}
+            },
+            detection: {
+                confidenceThreshold: 0.25,
+                autoSkipDeployment: true,
+                resumeProcessing: false,
+                stereoPrefix: ''
+            },
+            validation: {
+                smartSuggestions: true
+            },
+            maxn: {
+                aggregateChapters: false
+            }
+        };
+    }
+
+    function saveConfig() {
+        // Gather values from form
+        config.project.userId = document.getElementById('userName')?.value || '';
+        config.project.name = document.getElementById('projectName')?.value || '';
+        config.paths.inputVideos = document.getElementById('inputVideosPath')?.value || '';
+        config.paths.outputResults = document.getElementById('outputResultsPath')?.value || '';
+        config.detection.confidenceThreshold = parseFloat(document.getElementById('confThreshold')?.value || 0.25);
+        config.detection.autoSkipDeployment = document.getElementById('autoSkipDeployment')?.checked ?? true;
+        config.detection.resumeProcessing = document.getElementById('resumeProcessing')?.checked ?? false;
+        config.detection.stereoPrefix = document.getElementById('stereoPrefix')?.value || '';
+        config.maxn.aggregateChapters = document.getElementById('aggregateChapters')?.checked ?? false;
+
+        // Save video collections
+        config.paths.videoCollections = {};
+        document.querySelectorAll('.video-collection-row').forEach(row => {
+            const name = row.querySelector('.collection-name')?.value;
+            const path = row.querySelector('.collection-path')?.value;
+            if (name && path) {
+                config.paths.videoCollections[name] = path;
+            }
+        });
+
+        localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+        updateConfigDisplay();
+        updateSetupStatus();
+    }
+
+    function loadState() {
+        const saved = localStorage.getItem(STATE_KEY);
+        if (saved) {
+            try {
+                return JSON.parse(saved);
+            } catch (e) {
+                console.error('Failed to parse state:', e);
+            }
+        }
+        return {
+            detectionComplete: false,
+            thumbnailsGenerated: false,
+            validationStarted: false,
+            maxnCalculated: false
+        };
+    }
+
+    function saveState() {
+        localStorage.setItem(STATE_KEY, JSON.stringify(state));
+    }
+
+    // ============================================================================
+    // UI Functions
+    // ============================================================================
+
+    function showPage(pageId) {
+        // Hide all pages
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+
+        // Show selected page
+        document.getElementById('page-' + pageId)?.classList.add('active');
+
+        // Update nav
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        document.querySelector(`[data-page="${pageId}"]`)?.classList.add('active');
+    }
+
+    function showModal(modalId) {
+        document.getElementById(modalId)?.classList.add('visible');
+    }
+
+    function hideModal(modalId) {
+        document.getElementById(modalId)?.classList.remove('visible');
+    }
+
+    function toggleCollapsible(header) {
+        header.parentElement.classList.toggle('open');
+    }
+
+    function populateFormFromConfig() {
+        document.getElementById('userName').value = config.project.userId || '';
+        document.getElementById('projectName').value = config.project.name || '';
+        document.getElementById('inputVideosPath').value = config.paths.inputVideos || '';
+        document.getElementById('outputResultsPath').value = config.paths.outputResults || '';
+        document.getElementById('confThreshold').value = config.detection.confidenceThreshold || 0.25;
+        document.getElementById('confValue').textContent = config.detection.confidenceThreshold || 0.25;
+        document.getElementById('autoSkipDeployment').checked = config.detection.autoSkipDeployment !== false;
+        document.getElementById('resumeProcessing').checked = config.detection.resumeProcessing === true;
+        document.getElementById('stereoPrefix').value = config.detection.stereoPrefix || '';
+        document.getElementById('aggregateChapters').checked = config.maxn.aggregateChapters === true;
+
+        // Populate video collections
+        const container = document.getElementById('videoCollections');
+        container.innerHTML = '';
+        for (const [name, path] of Object.entries(config.paths.videoCollections || {})) {
+            addVideoCollectionRow(name, path);
+        }
+
+        updateConfigDisplay();
+        updateSetupStatus();
+    }
+
+    function addVideoCollection() {
+        addVideoCollectionRow('', '');
+    }
+
+    function addVideoCollectionRow(name = '', path = '') {
+        const container = document.getElementById('videoCollections');
+        const row = document.createElement('div');
+        row.className = 'video-collection-row';
+        row.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
+        row.innerHTML = `
+            <input type="text" class="form-input collection-name" placeholder="Collection name"
+                   value="${name}" style="flex: 1;" onchange="saveConfig()">
+            <input type="text" class="form-input collection-path" placeholder="/path/to/videos"
+                   value="${path}" style="flex: 2;" onchange="saveConfig()">
+            <button class="btn btn-secondary" onclick="this.parentElement.remove(); saveConfig()">✕</button>
+        `;
+        container.appendChild(row);
+    }
+
+    function updateSetupStatus() {
+        const hasUser = config.project.userId?.length > 0;
+        const hasInput = config.paths.inputVideos?.length > 0;
+        const hasOutput = config.paths.outputResults?.length > 0;
+
+        const statusEl = document.getElementById('status-setup');
+        if (hasUser && hasInput && hasOutput) {
+            statusEl.textContent = 'Ready';
+            statusEl.className = 'nav-status ready';
+        } else {
+            statusEl.textContent = 'Needs Setup';
+            statusEl.className = 'nav-status needs-setup';
+        }
+    }
+
+    function updateConfigDisplay() {
+        const display = document.getElementById('configDisplay');
+        if (display) {
+            display.textContent = JSON.stringify(config, null, 2);
+        }
+    }
+
+    function saveAndContinue() {
+        saveConfig();
+        showPage('detection');
+    }
+
+    // ============================================================================
+    // API Interactions
+    // ============================================================================
+
+    async function fetchSystemInfo() {
+        try {
+            const response = await fetch('/api/system/info');
+            const data = await response.json();
+
+            const container = document.getElementById('systemInfo');
+            container.innerHTML = `
+                <div class="system-info-item">
+                    <div class="system-info-icon ${data.gpu_available ? 'gpu' : 'no-gpu'}">
+                        ${data.gpu_available ? '🎮' : '💻'}
+                    </div>
+                    <div>
+                        <strong>${data.gpu_available ? data.gpu_name : 'CPU Only'}</strong>
+                        <div style="font-size: 12px; color: var(--text-muted);">
+                            ${data.gpu_available ? `CUDA ${data.cuda_version}` : 'No GPU detected'}
+                        </div>
+                    </div>
+                </div>
+                <div class="system-info-item">
+                    <div class="system-info-icon">🧠</div>
+                    <div>
+                        <strong>${data.memory_total_gb} GB RAM</strong>
+                        <div style="font-size: 12px; color: var(--text-muted);">
+                            ${data.memory_available_gb} GB available
+                        </div>
+                    </div>
+                </div>
+                <div class="system-info-item">
+                    <div class="system-info-icon">⚡</div>
+                    <div>
+                        <strong>${data.cpu_cores} CPU Cores</strong>
+                        <div style="font-size: 12px; color: var(--text-muted);">Available for processing</div>
+                    </div>
+                </div>
+            `;
+        } catch (e) {
+            console.error('Failed to fetch system info:', e);
+            document.getElementById('systemInfo').innerHTML = `
+                <div class="info-box warning">
+                    <span class="info-box-icon">⚠️</span>
+                    <div class="info-box-content">
+                        <h4>Could not fetch system info</h4>
+                        <p>Make sure the SharkTrack server is running.</p>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    async function startDetection() {
+        const btn = document.getElementById('startDetectionBtn');
+        const stopBtn = document.getElementById('stopDetectionBtn');
+        const log = document.getElementById('detectionLog');
+
+        btn.disabled = true;
+        stopBtn.disabled = false;
+        log.style.display = 'block';
+        log.textContent = 'Starting detection...\n';
+
+        try {
+            const response = await fetch('/api/analyze/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    input_path: config.paths.inputVideos,
+                    output_path: config.paths.outputResults,
+                    conf: config.detection.confidenceThreshold,
+                    auto_skip_deployment: config.detection.autoSkipDeployment,
+                    resume: config.detection.resumeProcessing,
+                    stereo_prefix: config.detection.stereoPrefix || null
+                })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                pollDetectionStatus(data.process_id);
+            } else {
+                log.textContent += `Error: ${data.error}\n`;
+                btn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        } catch (e) {
+            log.textContent += `Error: ${e.message}\n`;
+            btn.disabled = false;
+            stopBtn.disabled = true;
+        }
+    }
+
+    async function pollDetectionStatus(processId) {
+        const log = document.getElementById('detectionLog');
+        const progress = document.getElementById('detectionProgress');
+        const btn = document.getElementById('startDetectionBtn');
+        const stopBtn = document.getElementById('stopDetectionBtn');
+
+        try {
+            const response = await fetch(`/api/analyze/status/${processId}`);
+            const data = await response.json();
+
+            if (data.output) {
+                log.textContent += data.output;
+                log.scrollTop = log.scrollHeight;
+            }
+
+            document.getElementById('videosProcessed').textContent = data.progress || 0;
+
+            if (data.status === 'running') {
+                setTimeout(() => pollDetectionStatus(processId), 1000);
+            } else if (data.status === 'completed') {
+                log.textContent += '\n✅ Detection completed!\n';
+                progress.style.width = '100%';
+                progress.classList.add('success');
+                btn.disabled = false;
+                stopBtn.disabled = true;
+                state.detectionComplete = true;
+                saveState();
+                document.getElementById('status-detection').textContent = 'Complete';
+                document.getElementById('status-detection').className = 'nav-status ready';
+            } else {
+                log.textContent += `\n❌ Detection ${data.status}\n`;
+                btn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        } catch (e) {
+            log.textContent += `\nError polling status: ${e.message}\n`;
+            setTimeout(() => pollDetectionStatus(processId), 2000);
+        }
+    }
+
+    async function stopDetection() {
+        // Implementation for stopping detection
+        alert('Stop requested - this may take a moment...');
+    }
+
+    async function generateThumbnails() {
+        alert('Generating thumbnails... This will open in a new process.');
+        // In production, this would call the API
+    }
+
+    function openValidation() {
+        const validationPath = config.paths.outputResults + '/validation/validation.html';
+        window.open('file://' + validationPath, '_blank');
+    }
+
+    async function updateSmartPredictions() {
+        alert('Running smart predictions update...');
+        // In production, this would call the API
+    }
+
+    async function regenerateValidationHTML() {
+        alert('Regenerating validation HTML with predictions...');
+        // In production, this would call the API
+    }
+
+    async function calculateMaxN() {
+        alert('Calculating MaxN...');
+        // In production, this would call the API
+    }
+
+    function viewMaxNResults() {
+        const resultsPath = config.paths.outputResults + '/analysed/maxn.csv';
+        alert('MaxN results at: ' + resultsPath);
+    }
+
+    async function prepareTrainingData() {
+        alert('Preparing training data...');
+        // In production, this would call the API
+    }
+
+    // ============================================================================
+    // Config Import/Export
+    // ============================================================================
+
+    function exportConfig() {
+        const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'sharktrack_config.json';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    function importConfig() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                try {
+                    const text = await file.text();
+                    config = JSON.parse(text);
+                    saveConfig();
+                    populateFormFromConfig();
+                    alert('Configuration imported successfully!');
+                } catch (err) {
+                    alert('Failed to import config: ' + err.message);
+                }
+            }
+        };
+        input.click();
+    }
+
+    function resetConfig() {
+        if (confirm('Reset all settings to defaults? This cannot be undone.')) {
+            config = getDefaultConfig();
+            localStorage.removeItem(CONFIG_KEY);
+            populateFormFromConfig();
+            alert('Configuration reset to defaults.');
+        }
+    }
+
+    function saveSettings() {
+        // Save settings from modal
+        hideModal('settingsModal');
+    }
+
+    function validatePath(input, pathType) {
+        // Visual feedback - in production would verify with server
+        if (input.value) {
+            input.style.borderColor = 'var(--success)';
+        }
+    }
+
+    function browsePath(inputId) {
+        // In production, this would open a file browser dialog via the server
+        alert('File browser not available in standalone HTML. Please paste the path manually.');
+    }
+
+    // ============================================================================
+    // Keyboard Shortcuts
+    // ============================================================================
+
+    document.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        switch (e.key) {
+            case '1': showPage('setup'); break;
+            case '2': showPage('detection'); break;
+            case '3': showPage('validation-prep'); break;
+            case '4': showPage('validation'); break;
+            case '5': showPage('maxn'); break;
+            case '?': showModal('helpModal'); break;
+        }
+    });
+
+    // ============================================================================
+    // Initialize
+    // ============================================================================
+
+    document.addEventListener('DOMContentLoaded', () => {
+        populateFormFromConfig();
+        fetchSystemInfo();
+    });
+    </script>
+</body>
+</html>
