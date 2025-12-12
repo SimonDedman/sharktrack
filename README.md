@@ -129,6 +129,14 @@ This usually means dependencies failed to install. Common causes:
 3. **Multiple Python versions**: Make sure the batch file is using the right one
    - Check with: `python --version`
 
+### Windows Firewall prompt
+
+On first run, Windows may ask: "Allow Python to access the network?"
+
+**Click "Allow"** - SharkTrack needs network access to run the local web server.
+
+If you accidentally clicked "Block", go to Windows Firewall settings and allow Python.
+
 ### "Python not found"
 
 Install Python 3.12.10: [Windows](https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe) | [Mac](https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg)
