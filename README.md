@@ -41,7 +41,7 @@ First launch will take a few minutes to install dependencies.
 - **Python 3.12.10** (required - [download links above](#1-install-python-if-not-already-installed))
 - **GPU** (optional but recommended) - NVIDIA CUDA or Apple Silicon
 - **RAM**: 8GB minimum, 16GB recommended
-- **Disk**: Space for output files (~10% of video size)
+- **Disk**: ~8 GB for Python packages (PyTorch, Ultralytics, etc.) + space for output files (~10% of video size)
 
 ## First-Time Setup
 
