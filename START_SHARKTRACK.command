@@ -17,15 +17,25 @@ echo ""
 if ! command -v python3 &> /dev/null; then
     echo "[ERROR] Python 3 not found!"
     echo ""
-    echo "Please install Python 3:"
-    echo "  Option 1: Install from https://www.python.org/downloads/"
-    echo "  Option 2: Use Homebrew: brew install python3"
+    echo "Please install Python 3.12.10:"
+    echo "  https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg"
     echo ""
     read -p "Press Enter to exit..."
     exit 1
 fi
 
+PYTHON_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.minor}')")
 echo "[OK] Python found: $(python3 --version)"
+
+# Warn about Python 3.13+
+if [ "$PYTHON_VERSION" -ge 13 ]; then
+    echo ""
+    echo "[WARNING] Python 3.13+ does NOT work with ML libraries like PyTorch"
+    echo "          Please install Python 3.12.10 from:"
+    echo "          https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg"
+    echo ""
+    sleep 3
+fi
 
 # Check for GPU support (MPS on Mac)
 echo ""
@@ -61,11 +71,21 @@ source sharktrack-env/bin/activate
 
 # Install/update dependencies
 echo ""
-echo "Checking dependencies (this may take a few minutes on first run)..."
-pip install -q -r requirements.txt
-
-# Install Flask if needed
-pip show flask > /dev/null 2>&1 || pip install -q flask
+echo "Installing dependencies (this may take a few minutes on first run)..."
+echo ""
+pip install -r requirements.txt
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[ERROR] Dependency installation failed!"
+    echo ""
+    echo "Common causes:"
+    echo "  1. Python version too new (3.13+) - install Python 3.12.10 from:"
+    echo "     https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg"
+    echo "  2. No internet connection"
+    echo ""
+    read -p "Press Enter to exit..."
+    exit 1
+fi
 
 # Create required directories
 mkdir -p models templates static

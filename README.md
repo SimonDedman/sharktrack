@@ -6,9 +6,11 @@ AI-powered shark and ray detection for BRUV video analysis, with human validatio
 
 ### 1. Install Python (if not already installed)
 
-Download and install [Python 3.11 or 3.12](https://www.python.org/downloads/) (3.13+ may have compatibility issues with ML libraries)
+Download and install **Python 3.12.10** (required - Python 3.13+ does NOT work with ML libraries):
 
-**Windows users:** Check "Add Python to PATH" during installation!
+- **Windows**: [python-3.12.10-amd64.exe](https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe) - **Check "Add Python to PATH" during installation!**
+- **Mac**: [python-3.12.10-macos11.pkg](https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg)
+- **Linux**: Use your package manager (`sudo apt install python3.12`) or [source](https://www.python.org/ftp/python/3.12.10/Python-3.12.10.tar.xz)
 
 ### 2. Download SharkTrack
 
@@ -36,7 +38,7 @@ First launch will take a few minutes to install dependencies.
 
 ## System Requirements
 
-- [**Python 3.11 or 3.12**](https://www.python.org/downloads/) (3.13+ may not work with PyTorch/ML libraries yet)
+- **Python 3.12.10** (required - [download links above](#1-install-python-if-not-already-installed))
 - **GPU** (optional but recommended) - NVIDIA CUDA or Apple Silicon
 - **RAM**: 8GB minimum, 16GB recommended
 - **Disk**: Space for output files (~10% of video size)
@@ -110,16 +112,36 @@ your_output_folder/
 
 ## Troubleshooting
 
+### "ModuleNotFoundError: No module named 'flask'" (or other packages)
+
+This usually means dependencies failed to install. Common causes:
+
+1. **Wrong Python version**: Python 3.13+ doesn't support PyTorch/ML libraries yet
+   - Solution: Install Python 3.12.10 ([Windows](https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe) | [Mac](https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg))
+   - Windows: Uninstall Python 3.13+, install 3.12.10, check "Add Python to PATH"
+
+2. **pip install failed silently**: Try running manually:
+   ```
+   pip install -r requirements.txt
+   ```
+
+3. **Multiple Python versions**: Make sure the batch file is using the right one
+   - Check with: `python --version`
+
 ### "Python not found"
-Install Python 3.10+ from https://www.python.org/downloads/
+
+Install Python 3.12.10: [Windows](https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe) | [Mac](https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg)
+
 On Windows, check "Add Python to PATH" during installation.
 
 ### "No GPU detected"
+
 SharkTrack works on CPU (just slower). For GPU:
 - NVIDIA: Install CUDA toolkit
 - Mac: Apple Silicon M1/M2/M3 automatically detected
 
 ### "Thumbnails not loading"
+
 Check your Video Collections mapping in Project Setup - the paths must match your local filesystem.
 
 ## Attribution

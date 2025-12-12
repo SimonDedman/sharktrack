@@ -41,9 +41,23 @@ def print_banner():
 def check_python_version():
     """Check Python version is adequate."""
     version = sys.version_info
-    if version.major < 3 or (version.major == 3 and version.minor < 8):
-        print(f"[ERROR] Python 3.8+ required, found {version.major}.{version.minor}")
+    if version.major < 3 or (version.major == 3 and version.minor < 10):
+        print(f"[ERROR] Python 3.10+ required, found {version.major}.{version.minor}")
         return False
+
+    if version.minor >= 13:
+        print(f"[WARNING] Python {version.major}.{version.minor}.{version.micro}")
+        print("          Python 3.13+ does NOT work with ML libraries like PyTorch!")
+        print("          Please install Python 3.12.10:")
+        system = platform.system().lower()
+        if system == "windows":
+            print("          https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe")
+        elif system == "darwin":
+            print("          https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg")
+        else:
+            print("          sudo apt install python3.12  (or your package manager)")
+        return True  # Allow but warn
+
     print(f"[OK] Python {version.major}.{version.minor}.{version.micro}")
     return True
 
@@ -72,7 +86,36 @@ def check_gpu():
         return None
 
 
-def check_dependencies():
+def install_dependencies():
+    """Attempt to install dependencies from requirements.txt."""
+    requirements_file = Path(__file__).parent / "requirements.txt"
+
+    if not requirements_file.exists():
+        print("[ERROR] requirements.txt not found!")
+        return False
+
+    print("\n" + "=" * 50)
+    print("Installing dependencies (this may take a few minutes)...")
+    print("=" * 50 + "\n")
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-r", str(requirements_file)],
+            capture_output=False,  # Show output so user sees progress
+            text=True
+        )
+        if result.returncode == 0:
+            print("\n[OK] Dependencies installed successfully!")
+            return True
+        else:
+            print("\n[ERROR] pip install failed!")
+            return False
+    except Exception as e:
+        print(f"\n[ERROR] Could not run pip: {e}")
+        return False
+
+
+def check_dependencies(auto_install=True):
     """Check that required dependencies are installed."""
     required = ['flask', 'cv2', 'numpy', 'pandas', 'ultralytics']
     optional = ['tqdm', 'click', 'PIL']
@@ -91,9 +134,30 @@ def check_dependencies():
             missing.append(module)
 
     if missing:
-        print(f"[ERROR] Missing required packages: {', '.join(missing)}")
-        print("        Install with: pip install -r requirements.txt")
-        return False
+        print(f"[WARNING] Missing required packages: {', '.join(missing)}")
+
+        if auto_install:
+            print("\nAttempting to install dependencies automatically...")
+            if install_dependencies():
+                # Re-check after installation
+                print("\nRe-checking dependencies...")
+                return check_dependencies(auto_install=False)
+            else:
+                print("\n[ERROR] Automatic installation failed!")
+                print("        Please try manually: pip install -r requirements.txt")
+                print("\n        If using Python 3.13+, install Python 3.12.10:")
+                system = platform.system().lower()
+                if system == "windows":
+                    print("        https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe")
+                elif system == "darwin":
+                    print("        https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg")
+                else:
+                    print("        sudo apt install python3.12  (or your package manager)")
+                return False
+        else:
+            print(f"[ERROR] Still missing packages: {', '.join(missing)}")
+            print("        Install with: pip install -r requirements.txt")
+            return False
 
     print("[OK] All required dependencies installed")
     return True

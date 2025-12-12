@@ -18,11 +18,10 @@ python --version >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Python not found!
     echo.
-    echo Please install Python 3.10 or later:
-    echo   1. Go to https://www.python.org/downloads/
-    echo   2. Download Python 3.10 or later
-    echo   3. IMPORTANT: Check "Add Python to PATH" during installation
-    echo   4. Restart this script
+    echo Please install Python 3.12.10:
+    echo   1. Download from: https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe
+    echo   2. IMPORTANT: Check "Add Python to PATH" during installation
+    echo   3. Restart this script
     echo.
     pause
     exit /b 1
@@ -56,20 +55,41 @@ echo.
 echo Activating virtual environment...
 call sharktrack-env\Scripts\activate.bat
 
-REM Install/update dependencies
+REM Check Python version (3.13+ often has compatibility issues with ML libraries)
 echo.
-echo Checking dependencies...
-pip install -q -r requirements.txt
+echo Checking Python version compatibility...
+python -c "import sys; v=sys.version_info; exit(0 if v.major==3 and 10<=v.minor<=12 else 1)" 2>nul
 if errorlevel 1 (
-    echo [WARNING] Some dependencies may have failed to install
-    echo           SharkTrack may still work, continuing...
+    echo.
+    echo [WARNING] Python version may not be compatible!
+    echo           SharkTrack requires Python 3.10, 3.11, or 3.12
+    echo           Python 3.13+ does NOT work with ML libraries like PyTorch
+    echo.
+    echo           Please install Python 3.12.10 from:
+    echo           https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe
+    echo.
+    timeout /t 5 >nul
 )
 
-REM Install Flask if needed
-pip show flask >nul 2>&1
+REM Install/update dependencies
+echo.
+echo Installing dependencies (this may take a few minutes on first run)...
+echo.
+pip install -r requirements.txt
 if errorlevel 1 (
-    echo Installing Flask...
-    pip install -q flask
+    echo.
+    echo [ERROR] Dependency installation failed!
+    echo.
+    echo Common causes:
+    echo   1. Python version too new (3.13+) - install Python 3.12.10 from:
+    echo      https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe
+    echo   2. No internet connection
+    echo   3. Firewall blocking pip
+    echo.
+    echo Try running manually: pip install -r requirements.txt
+    echo.
+    pause
+    exit /b 1
 )
 
 REM Create required directories

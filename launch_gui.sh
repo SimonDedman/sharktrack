@@ -7,51 +7,65 @@
 cd "$(dirname "$0")"
 
 echo "=========================================="
-echo "🦈 SharkTrack Web GUI"
+echo "SharkTrack Web GUI"
 echo "=========================================="
 echo ""
 
-# Check if virtual environment exists
-if [ ! -d "sharktrack-env" ]; then
-    echo "❌ Virtual environment not found!"
-    echo ""
-    echo "Setting up for first time..."
-    python3 -m venv sharktrack-env
-    source sharktrack-env/bin/activate
-    pip install flask torch torchvision ultralytics opencv-python pandas tqdm click scikit-learn
-else
-    source sharktrack-env/bin/activate
+# Check Python version
+PYTHON_VERSION=$(python3 -c "import sys; print(sys.version_info.minor)" 2>/dev/null)
+if [ -z "$PYTHON_VERSION" ]; then
+    echo "[ERROR] Python 3 not found!"
+    echo "Please install Python 3.12 using your package manager:"
+    echo "  Ubuntu/Debian: sudo apt install python3.12"
+    echo "  Fedora: sudo dnf install python3.12"
+    echo "  Or from source: https://www.python.org/ftp/python/3.12.10/Python-3.12.10.tar.xz"
+    exit 1
 fi
 
-# Install Flask if needed
-python3 -c "import flask" 2>/dev/null || pip install flask
+echo "[OK] Python found: $(python3 --version)"
+
+if [ "$PYTHON_VERSION" -ge 13 ]; then
+    echo ""
+    echo "[WARNING] Python 3.13+ does NOT work with ML libraries like PyTorch"
+    echo "          Please install Python 3.12 using your package manager:"
+    echo "          Ubuntu/Debian: sudo apt install python3.12"
+    echo ""
+    sleep 3
+fi
+
+# Check if virtual environment exists
+if [ ! -d "sharktrack-env" ]; then
+    echo ""
+    echo "Creating virtual environment (first-time setup)..."
+    python3 -m venv sharktrack-env
+    if [ $? -ne 0 ]; then
+        echo "[ERROR] Failed to create virtual environment"
+        exit 1
+    fi
+fi
+
+source sharktrack-env/bin/activate
+
+# Install dependencies
+echo ""
+echo "Installing dependencies (this may take a few minutes on first run)..."
+pip install -r requirements.txt
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[ERROR] Dependency installation failed!"
+    echo ""
+    echo "If using Python 3.13+, install Python 3.12:"
+    echo "  Ubuntu/Debian: sudo apt install python3.12"
+    echo "  Fedora: sudo dnf install python3.12"
+    exit 1
+fi
 
 # Create directories
 mkdir -p templates static models
 
-echo "✅ Starting server..."
+echo ""
+echo "[OK] Starting SharkTrack..."
 echo ""
 
-# Start server in background
-python3 web_gui.py &
-SERVER_PID=$!
-
-# Wait for server to start
-sleep 3
-
-# Open browser
-echo "🌐 Opening browser..."
-if command -v xdg-open > /dev/null; then
-    xdg-open http://localhost:5000
-elif command -v gnome-open > /dev/null; then
-    gnome-open http://localhost:5000
-else
-    echo "Please open your browser to: http://localhost:5000"
-fi
-
-echo ""
-echo "Press Ctrl+C to stop the server"
-echo ""
-
-# Wait for server process
-wait $SERVER_PID
+# Use unified launcher (handles browser opening and better error messages)
+python3 start_sharktrack.py
