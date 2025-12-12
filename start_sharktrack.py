@@ -265,13 +265,20 @@ def start_server(port=5000, debug=False):
         sys.exit(1)
 
 
-def open_browser(port=5000, delay=2.0):
+def open_browser(port=5000, delay=3.0):
     """Open the default browser after a short delay."""
     time.sleep(delay)
     url = f"http://localhost:{port}"
 
-    system = platform.system().lower()
+    # Try webbrowser module first - most reliable cross-platform
+    try:
+        webbrowser.open(url)
+        return
+    except Exception:
+        pass
 
+    # Fallback to OS-specific methods
+    system = platform.system().lower()
     try:
         if system == "darwin":  # macOS
             subprocess.run(["open", url], check=False)
@@ -280,8 +287,8 @@ def open_browser(port=5000, delay=2.0):
         else:  # Linux
             subprocess.run(["xdg-open", url], check=False)
     except Exception:
-        # Fallback to webbrowser module
-        webbrowser.open(url)
+        print(f"\n[INFO] Could not open browser automatically.")
+        print(f"       Please open: {url}\n")
 
 
 def main():
@@ -333,7 +340,7 @@ Examples:
         import threading
         browser_thread = threading.Thread(
             target=open_browser,
-            args=(args.port, 2.5),
+            args=(args.port, 3.0),
             daemon=True
         )
         browser_thread.start()
