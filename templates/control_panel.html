@@ -1094,6 +1094,51 @@
                         </button>
                     </div>
                 </div>
+
+                <!-- Combined Metadata Export -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Export Combined Metadata</h3>
+                    </div>
+
+                    <p style="margin-bottom: 20px;">
+                        Export a single CSV combining your metadata, GoPro camera data, and MaxN results - one row per video.
+                    </p>
+
+                    <div class="info-box info">
+                        <span class="info-box-icon">📋</span>
+                        <div class="info-box-content">
+                            <h4>What's Included</h4>
+                            <ul style="margin: 10px 0; padding-left: 20px;">
+                                <li><strong>Your metadata</strong> - site names, dates, coordinates, depth, etc. (from metadata CSV)</li>
+                                <li><strong>GoPro metadata</strong> - camera model, GPS, creation time, video quality metrics</li>
+                                <li><strong>MaxN results</strong> - species counts pivoted to columns (one per species)</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="extractGoProMetadata" checked onchange="saveConfig()">
+                            Extract GoPro metadata from videos
+                        </label>
+                        <p class="form-hint">Extracts camera info, GPS, timestamps, and video quality metrics. Disable if videos aren't available.</p>
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-primary btn-lg" onclick="exportCombinedMetadata()">
+                            📥 Export Combined CSV
+                        </button>
+                        <button class="btn btn-secondary" onclick="previewGoProMetadata()">
+                            🔍 Preview GoPro Data
+                        </button>
+                    </div>
+
+                    <div id="goProPreview" style="display: none; margin-top: 20px;">
+                        <h4>GoPro Metadata Preview</h4>
+                        <div id="goProPreviewContent"></div>
+                    </div>
+                </div>
             </div>
 
             <!-- Page 6: Classifier Training -->
@@ -1680,6 +1725,140 @@
     function viewMaxNResults() {
         const resultsPath = config.paths.outputResults + '/analysed/maxn.csv';
         alert('MaxN results at: ' + resultsPath);
+    }
+
+    async function exportCombinedMetadata() {
+        const extractGoPro = document.getElementById('extractGoProMetadata')?.checked ?? true;
+
+        // Get video directory from config
+        const videoCollections = config.paths.videoCollections || {};
+        const videoDir = Object.values(videoCollections)[0];
+
+        if (!videoDir) {
+            alert('Please configure a video collection in Project Setup first.');
+            return;
+        }
+
+        const btn = event.target;
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '⏳ Exporting...';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch('/api/export-combined-metadata', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    videoDir: videoDir,
+                    userMetadataPath: config.metadata?.userMetadataFile || null,
+                    outputDir: config.paths.outputResults,
+                    extractGoPro: extractGoPro
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Export failed');
+            }
+
+            // Trigger download
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = response.headers.get('Content-Disposition')?.split('filename=')[1] || 'combined_metadata.csv';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+
+            alert('Combined metadata exported successfully!');
+
+        } catch (error) {
+            console.error('Export error:', error);
+            alert('Export failed: ' + error.message);
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    }
+
+    async function previewGoProMetadata() {
+        const videoCollections = config.paths.videoCollections || {};
+        const videoDir = Object.values(videoCollections)[0];
+
+        if (!videoDir) {
+            alert('Please configure a video collection in Project Setup first.');
+            return;
+        }
+
+        const previewDiv = document.getElementById('goProPreview');
+        const contentDiv = document.getElementById('goProPreviewContent');
+
+        contentDiv.innerHTML = '<p>Loading preview from first 5 videos...</p>';
+        previewDiv.style.display = 'block';
+
+        try {
+            const response = await fetch('/api/extract-gopro-metadata', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    videoDir: videoDir,
+                    limit: 5
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Preview failed');
+            }
+
+            const data = await response.json();
+
+            // Build preview table
+            let html = `<p>Found ${data.total_videos} videos. Showing preview from ${data.preview_count}:</p>`;
+
+            if (data.preview && data.preview.length > 0) {
+                html += '<div style="overflow-x: auto;"><table class="preview-table" style="font-size: 12px; width: 100%; border-collapse: collapse;">';
+
+                // Header
+                html += '<tr>';
+                const cols = ['video_filename', 'gopro_duration_sec', 'gopro_resolution', 'gopro_camera_model', 'gopro_creation_time', 'gopro_latitude', 'gopro_longitude'];
+                for (const col of cols) {
+                    if (data.columns.includes(col)) {
+                        html += `<th style="padding: 8px; border: 1px solid #ddd; background: #f5f5f5;">${col.replace('gopro_', '')}</th>`;
+                    }
+                }
+                html += '</tr>';
+
+                // Rows
+                for (const row of data.preview) {
+                    html += '<tr>';
+                    for (const col of cols) {
+                        if (data.columns.includes(col)) {
+                            let val = row[col];
+                            if (val === null || val === undefined) val = '-';
+                            if (typeof val === 'number') val = val.toFixed ? val.toFixed(2) : val;
+                            html += `<td style="padding: 8px; border: 1px solid #ddd;">${val}</td>`;
+                        }
+                    }
+                    html += '</tr>';
+                }
+
+                html += '</table></div>';
+
+                // Show all available columns
+                html += `<p style="margin-top: 10px; font-size: 11px; color: #666;"><strong>All columns available:</strong> ${data.columns.join(', ')}</p>`;
+            } else {
+                html += '<p>No metadata could be extracted.</p>';
+            }
+
+            contentDiv.innerHTML = html;
+
+        } catch (error) {
+            console.error('Preview error:', error);
+            contentDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+        }
     }
 
     async function prepareTrainingData() {

@@ -793,6 +793,144 @@ def metadata_template():
     )
 
 
+@app.route('/api/export-combined-metadata', methods=['POST'])
+def export_combined_metadata():
+    """Export combined metadata: user metadata + GoPro metadata + MaxN results"""
+    import io
+    from pathlib import Path
+
+    try:
+        data = request.json or {}
+
+        # Get paths from request or config
+        video_dir = data.get('videoDir')
+        user_metadata_path = data.get('userMetadataPath')
+        output_dir = data.get('outputDir')
+        extract_gopro = data.get('extractGoPro', True)
+
+        # Load config if paths not provided
+        config_path = 'sharktrack_config.json'
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+
+            if not video_dir:
+                # Get first video collection directory
+                video_dirs = config.get('paths', {}).get('video_dirs', {})
+                if video_dirs:
+                    video_dir = list(video_dirs.values())[0]
+
+            if not user_metadata_path:
+                user_metadata_path = config.get('metadata', {}).get('user_metadata_file')
+
+            if not output_dir:
+                output_dir = config.get('paths', {}).get('output_results', '')
+
+        if not video_dir:
+            return jsonify({'error': 'No video directory specified'}), 400
+
+        # Find MaxN results if available
+        maxn_path = None
+        if output_dir:
+            potential_maxn = Path(output_dir) / 'analysed' / 'maxn.csv'
+            if potential_maxn.exists():
+                maxn_path = str(potential_maxn)
+
+        # Import merger
+        try:
+            from utils.metadata_merger import MetadataMerger
+        except ImportError:
+            return jsonify({'error': 'Metadata merger module not found'}), 500
+
+        # Find videos
+        video_path = Path(video_dir)
+        video_extensions = ['.mp4', '.MP4', '.avi', '.AVI', '.mov', '.MOV', '.mkv', '.MKV']
+
+        video_paths = []
+        for ext in video_extensions:
+            video_paths.extend(video_path.rglob(f'*{ext}'))
+        video_paths = [str(p) for p in video_paths]
+
+        if not video_paths:
+            return jsonify({'error': f'No video files found in {video_dir}'}), 400
+
+        # Merge metadata
+        merger = MetadataMerger()
+
+        combined_df = merger.merge_all_metadata(
+            video_paths=video_paths,
+            user_metadata_path=user_metadata_path,
+            maxn_path=maxn_path,
+            extract_gopro=extract_gopro
+        )
+
+        # Return as CSV download
+        output = io.StringIO()
+        combined_df.to_csv(output, index=False)
+        output.seek(0)
+
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f'combined_metadata_{timestamp}.csv'
+
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename={filename}'}
+        )
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/extract-gopro-metadata', methods=['POST'])
+def extract_gopro_metadata():
+    """Extract GoPro metadata from videos (returns JSON preview)"""
+    try:
+        data = request.json or {}
+        video_dir = data.get('videoDir')
+        limit = data.get('limit', 5)  # Only process first N videos for preview
+
+        if not video_dir:
+            return jsonify({'error': 'No video directory specified'}), 400
+
+        # Import merger
+        try:
+            from utils.metadata_merger import MetadataMerger
+        except ImportError:
+            return jsonify({'error': 'Metadata merger module not found'}), 500
+
+        # Find videos
+        video_path = Path(video_dir)
+        video_extensions = ['.mp4', '.MP4', '.avi', '.AVI', '.mov', '.MOV']
+
+        video_paths = []
+        for ext in video_extensions:
+            video_paths.extend(video_path.rglob(f'*{ext}'))
+        video_paths = [str(p) for p in video_paths[:limit]]
+
+        if not video_paths:
+            return jsonify({'error': f'No video files found in {video_dir}'}), 400
+
+        # Extract GoPro metadata
+        merger = MetadataMerger()
+        gopro_df = merger.extract_gopro_metadata(video_paths)
+
+        # Return preview
+        return jsonify({
+            'total_videos': len(list(Path(video_dir).rglob('*.mp4'))) + len(list(Path(video_dir).rglob('*.MP4'))),
+            'preview_count': len(gopro_df),
+            'columns': list(gopro_df.columns),
+            'preview': gopro_df.head(5).to_dict('records')
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     # Create templates directory if it doesn't exist
     os.makedirs('templates', exist_ok=True)
