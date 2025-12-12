@@ -786,6 +786,48 @@
 
                 <div class="card">
                     <div class="card-header">
+                        <h3 class="card-title">Project Metadata</h3>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Metadata File (CSV)</label>
+                        <div class="form-input with-button">
+                            <input type="text" id="metadataFilePath" placeholder="/path/to/BRUV_metadata.csv"
+                                   onchange="validateMetadataFile(this); saveConfig()">
+                            <button class="browse-btn" onclick="browseFile('metadataFilePath', '.csv')">Browse...</button>
+                        </div>
+                        <p class="form-hint">CSV file with one row per video containing location, date, environmental data, etc.</p>
+                    </div>
+
+                    <div class="info-box info">
+                        <span class="info-box-icon">📋</span>
+                        <div class="info-box-content">
+                            <h4>Metadata File Format</h4>
+                            <p>Your CSV should have these columns (additional columns are preserved):</p>
+                            <ul style="margin: 8px 0 0 20px; font-size: 13px;">
+                                <li><strong>video_filename</strong> - Video file name (required, used for matching)</li>
+                                <li><strong>latitude</strong>, <strong>longitude</strong> - GPS coordinates</li>
+                                <li><strong>date</strong>, <strong>time</strong> - Recording date/time</li>
+                                <li><strong>depth_m</strong> - Deployment depth in meters</li>
+                                <li><strong>site_name</strong> - Location/site identifier</li>
+                                <li><strong>habitat</strong> - Habitat type (reef, sand, seagrass, etc.)</li>
+                            </ul>
+                            <p style="margin-top: 8px;">
+                                <a href="/api/metadata-template" download="metadata_template.csv" style="color: var(--accent);">
+                                    📥 Download template CSV
+                                </a>
+                            </p>
+                        </div>
+                    </div>
+
+                    <div id="metadataPreview" style="display: none;">
+                        <h4 style="margin: 15px 0 10px; font-size: 14px;">Preview (first 5 rows):</h4>
+                        <div id="metadataPreviewTable" style="overflow-x: auto; font-size: 12px;"></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
                         <h3 class="card-title">Video Collections</h3>
                         <button class="btn btn-secondary" onclick="addVideoCollection()">+ Add Collection</button>
                     </div>
@@ -1311,6 +1353,9 @@
             },
             maxn: {
                 aggregateChapters: false
+            },
+            metadata: {
+                userMetadataFile: ''
             }
         };
     }
@@ -1326,6 +1371,10 @@
         config.detection.resumeProcessing = document.getElementById('resumeProcessing')?.checked ?? false;
         config.detection.stereoPrefix = document.getElementById('stereoPrefix')?.value || '';
         config.maxn.aggregateChapters = document.getElementById('aggregateChapters')?.checked ?? false;
+
+        // Save metadata
+        if (!config.metadata) config.metadata = {};
+        config.metadata.userMetadataFile = document.getElementById('metadataFilePath')?.value || '';
 
         // Save video collections
         config.paths.videoCollections = {};
@@ -1402,6 +1451,12 @@
         document.getElementById('resumeProcessing').checked = config.detection.resumeProcessing === true;
         document.getElementById('stereoPrefix').value = config.detection.stereoPrefix || '';
         document.getElementById('aggregateChapters').checked = config.maxn.aggregateChapters === true;
+
+        // Populate metadata
+        document.getElementById('metadataFilePath').value = config.metadata?.userMetadataFile || '';
+        if (config.metadata?.userMetadataFile) {
+            loadMetadataPreview(config.metadata.userMetadataFile);
+        }
 
         // Populate video collections
         const container = document.getElementById('videoCollections');
@@ -1854,6 +1909,76 @@
     function browsePath(inputId) {
         // In production, this would open a file browser dialog via the server
         alert('File browser not available in standalone HTML. Please paste the path manually.');
+    }
+
+    function browseFile(inputId, extension) {
+        // In production, this would open a file browser dialog via the server
+        alert('File browser not available in standalone HTML. Please paste the file path manually.');
+    }
+
+    function validateMetadataFile(input) {
+        if (!input.value) {
+            input.style.borderColor = '';
+            document.getElementById('metadataPreview').style.display = 'none';
+            return;
+        }
+        loadMetadataPreview(input.value);
+    }
+
+    async function loadMetadataPreview(filePath) {
+        try {
+            const response = await fetch('/api/validate-metadata', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: filePath })
+            });
+            const result = await response.json();
+
+            const input = document.getElementById('metadataFilePath');
+            const preview = document.getElementById('metadataPreview');
+            const table = document.getElementById('metadataPreviewTable');
+
+            if (result.valid) {
+                input.style.borderColor = 'var(--success)';
+                preview.style.display = 'block';
+
+                // Build preview table
+                let html = '<table style="width: 100%; border-collapse: collapse;">';
+                html += '<tr style="background: var(--bg);">';
+                result.columns.forEach(col => {
+                    html += `<th style="padding: 6px 10px; border: 1px solid var(--border); text-align: left;">${col}</th>`;
+                });
+                html += '</tr>';
+
+                result.preview.forEach(row => {
+                    html += '<tr>';
+                    result.columns.forEach(col => {
+                        html += `<td style="padding: 6px 10px; border: 1px solid var(--border);">${row[col] ?? ''}</td>`;
+                    });
+                    html += '</tr>';
+                });
+                html += '</table>';
+                html += `<p style="margin-top: 8px; color: var(--text-muted); font-size: 12px;">
+                    ${result.row_count} videos in metadata file</p>`;
+
+                if (result.warnings && result.warnings.length > 0) {
+                    html += '<div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 4px;">';
+                    html += '<strong>Warnings:</strong><ul style="margin: 5px 0 0 20px;">';
+                    result.warnings.forEach(w => html += `<li>${w}</li>`);
+                    html += '</ul></div>';
+                }
+
+                table.innerHTML = html;
+            } else {
+                input.style.borderColor = 'var(--danger)';
+                preview.style.display = 'block';
+                table.innerHTML = `<div style="color: var(--danger); padding: 10px;">
+                    <strong>Error:</strong> ${result.error}</div>`;
+            }
+        } catch (error) {
+            console.error('Failed to validate metadata:', error);
+            document.getElementById('metadataFilePath').style.borderColor = 'var(--warning)';
+        }
     }
 
     // ============================================================================

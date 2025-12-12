@@ -701,6 +701,98 @@ def browse_directory():
         return jsonify({'error': str(e)}), 500
 
 
+# ============================================================================
+# Metadata API Endpoints
+# ============================================================================
+
+@app.route('/api/validate-metadata', methods=['POST'])
+def validate_metadata():
+    """Validate and preview a metadata CSV file"""
+    try:
+        data = request.get_json()
+        file_path = data.get('path', '')
+
+        if not file_path:
+            return jsonify({'valid': False, 'error': 'No file path provided'})
+
+        if not os.path.exists(file_path):
+            return jsonify({'valid': False, 'error': f'File not found: {file_path}'})
+
+        # Read the CSV/Excel file
+        if file_path.lower().endswith('.xlsx') or file_path.lower().endswith('.xls'):
+            df = pd.read_excel(file_path)
+        elif file_path.lower().endswith('.csv'):
+            df = pd.read_csv(file_path)
+        else:
+            return jsonify({'valid': False, 'error': 'File must be CSV or Excel (.xlsx/.xls)'})
+
+        # Check for required column (video_filename or similar)
+        columns = df.columns.tolist()
+        filename_col = None
+        for col in ['video_filename', 'filename', 'video', 'Video', 'Filename', 'VIDEO']:
+            if col in columns:
+                filename_col = col
+                break
+
+        warnings = []
+        if not filename_col:
+            warnings.append('No "video_filename" column found - SharkTrack may not be able to match videos to metadata')
+
+        # Check for recommended columns
+        recommended = ['latitude', 'longitude', 'date', 'time', 'depth_m', 'site_name', 'habitat']
+        missing = [col for col in recommended if col.lower() not in [c.lower() for c in columns]]
+        if missing:
+            warnings.append(f'Missing recommended columns: {", ".join(missing)}')
+
+        # Get preview (first 5 rows)
+        preview_df = df.head(5).fillna('')
+        preview = preview_df.to_dict('records')
+
+        return jsonify({
+            'valid': True,
+            'columns': columns,
+            'row_count': len(df),
+            'preview': preview,
+            'filename_column': filename_col,
+            'warnings': warnings
+        })
+
+    except Exception as e:
+        return jsonify({'valid': False, 'error': str(e)})
+
+
+@app.route('/api/metadata-template')
+def metadata_template():
+    """Download a metadata CSV template"""
+    import io
+
+    template_data = {
+        'video_filename': ['GH010001.MP4', 'GH010002.MP4', 'GH010003.MP4'],
+        'site_name': ['Site_A', 'Site_A', 'Site_B'],
+        'latitude': [-23.4567, -23.4567, -23.5678],
+        'longitude': [151.1234, 151.1234, 151.2345],
+        'date': ['2024-01-15', '2024-01-15', '2024-01-16'],
+        'time': ['09:30:00', '10:45:00', '08:15:00'],
+        'depth_m': [12.5, 12.5, 8.0],
+        'habitat': ['coral_reef', 'coral_reef', 'seagrass'],
+        'substrate': ['coral', 'coral', 'sand'],
+        'visibility_m': [15, 15, 10],
+        'water_temp_c': [26.5, 26.8, 25.2],
+        'notes': ['Clear conditions', 'Slight current', 'Morning deployment']
+    }
+
+    df = pd.DataFrame(template_data)
+    output = io.StringIO()
+    df.to_csv(output, index=False)
+    output.seek(0)
+
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=metadata_template.csv'}
+    )
+
+
 if __name__ == '__main__':
     # Create templates directory if it doesn't exist
     os.makedirs('templates', exist_ok=True)
