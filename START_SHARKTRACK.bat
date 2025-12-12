@@ -7,6 +7,19 @@ REM ==========================================
 title SharkTrack - Marine Video Analysis
 cd /d "%~dp0"
 
+REM Ensure we always pause at the end, even on errors
+goto :main
+
+:end
+echo.
+echo ==========================================
+echo Press any key to close this window...
+echo ==========================================
+pause
+exit /b
+
+:main
+
 echo.
 echo ==========================================
 echo       SharkTrack - Marine Video Analysis
@@ -23,8 +36,7 @@ if errorlevel 1 (
     echo   2. IMPORTANT: Check "Add Python to PATH" during installation
     echo   3. Restart this script
     echo.
-    pause
-    exit /b 1
+    goto :end
 )
 
 echo [OK] Python found
@@ -44,8 +56,7 @@ if not exist "sharktrack-env" (
     python -m venv sharktrack-env
     if errorlevel 1 (
         echo [ERROR] Failed to create virtual environment
-        pause
-        exit /b 1
+        goto :end
     )
     echo [OK] Virtual environment created
 )
@@ -91,8 +102,7 @@ if errorlevel 1 (
     echo.
     echo Try running manually: pip install -r requirements.txt
     echo.
-    pause
-    exit /b 1
+    goto :end
 )
 
 REM Create required directories
@@ -122,9 +132,13 @@ echo ==========================================
 echo.
 
 REM Start the web GUI
+echo [DEBUG] About to start Python...
 python start_sharktrack.py
+echo.
+echo [DEBUG] Python exited with code: %errorlevel%
+echo.
+
 if errorlevel 1 (
-    echo.
     echo [ERROR] SharkTrack failed to start.
     echo.
     echo Please check the error messages above.
@@ -134,8 +148,4 @@ if errorlevel 1 (
     echo.
 )
 
-echo.
-echo ==========================================
-echo Server stopped. Press any key to close...
-echo ==========================================
-pause >nul
+goto :end
