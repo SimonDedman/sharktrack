@@ -124,7 +124,7 @@ Check your Video Collections mapping in Project Setup - the paths must match you
 
 ## Attribution
 
-SharkTrack is based on [MoveTrack](https://github.com/filippovarini/sharktrack) by Filippo Varini.
+SharkTrack is based on [SharkTrack](https://github.com/filippovarini/sharktrack) by Filippo Varini.
 
 ## License
 
