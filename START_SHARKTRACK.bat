@@ -73,7 +73,10 @@ if errorlevel 1 (
 
 REM Install/update dependencies
 echo.
-echo Installing dependencies (this may take a few minutes on first run)...
+echo Installing dependencies (this may take 5-10 minutes on first run)...
+echo.
+echo NOTE: PyTorch and Ultralytics are large packages (several GB).
+echo       The install may appear to pause - this is normal, please wait.
 echo.
 pip install -r requirements.txt
 if errorlevel 1 (

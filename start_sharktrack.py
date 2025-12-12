@@ -94,9 +94,11 @@ def install_dependencies():
         print("[ERROR] requirements.txt not found!")
         return False
 
-    print("\n" + "=" * 50)
-    print("Installing dependencies (this may take a few minutes)...")
-    print("=" * 50 + "\n")
+    print("\n" + "=" * 60)
+    print("Installing dependencies (this may take 5-10 minutes)...")
+    print("=" * 60)
+    print("\nNOTE: PyTorch and Ultralytics are large packages (several GB).")
+    print("      The install may appear to pause - this is normal, please wait.\n")
 
     try:
         result = subprocess.run(
