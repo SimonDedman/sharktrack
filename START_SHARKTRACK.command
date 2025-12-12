@@ -100,24 +100,31 @@ if [ ! -f "sharktrack_config.json" ]; then
     python3 utils/config_loader.py --create
 fi
 
+# Test network access (may trigger macOS firewall prompt)
+echo ""
+echo "Checking network access..."
+python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 5000)); s.close(); print('[OK] Port 5000 available')" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "[WARNING] Port 5000 may be in use or blocked"
+fi
+
 echo ""
 echo "=========================================="
-echo "Starting SharkTrack Web Interface..."
+echo "Starting SharkTrack server..."
 echo "=========================================="
 echo ""
-echo "Your browser will open automatically."
-echo "If not, navigate to: http://localhost:5000"
+echo "Open this URL in your browser:"
 echo ""
-echo "Press Ctrl+C to stop the server"
+echo "   http://localhost:5000"
+echo ""
+echo "(Keep this window open - it runs the server)"
+echo "(Press Ctrl+C to stop)"
 echo "=========================================="
 echo ""
 
 # Start the web GUI
 python3 start_sharktrack.py
 
-# Keep terminal open on error
-if [ $? -ne 0 ]; then
-    echo ""
-    echo "[ERROR] SharkTrack failed to start"
-    read -p "Press Enter to exit..."
-fi
+echo ""
+echo "Server stopped."
+read -p "Press Enter to close..."

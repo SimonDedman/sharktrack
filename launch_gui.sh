@@ -67,9 +67,31 @@ fi
 # Create directories
 mkdir -p templates static models
 
+# Test network access
 echo ""
-echo "[OK] Starting SharkTrack..."
+echo "Checking network access..."
+python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 5000)); s.close(); print('[OK] Port 5000 available')" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "[WARNING] Port 5000 may be in use or blocked"
+fi
+
+echo ""
+echo "=========================================="
+echo "Starting SharkTrack server..."
+echo "=========================================="
+echo ""
+echo "Open this URL in your browser:"
+echo ""
+echo "   http://localhost:5000"
+echo ""
+echo "(Keep this window open - it runs the server)"
+echo "(Press Ctrl+C to stop)"
+echo "=========================================="
 echo ""
 
-# Use unified launcher (handles browser opening and better error messages)
+# Start the server
 python3 start_sharktrack.py
+
+echo ""
+echo "Server stopped."
+read -p "Press Enter to close..."
