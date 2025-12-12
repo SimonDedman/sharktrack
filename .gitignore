@@ -1,35 +1,37 @@
+# Output directories
 output/
 outputs/*
+
+# Python environment
 venv/
 sharktrack-env/
 __pycache__/
 *.pyc
-test.ipynb
+
+# OS/IDE files
 .DS_Store
 .Rhistory
-
-# Models (large files - use Git LFS or download separately)
-models/species_classifiers/
-models/*.pt
-!models/.gitkeep
-
-# Project-specific data (not for repo)
-STB_Results/
-input_videos/*.mp4
-input_videos/*.MP4
-
-# IDE
 .idea/
 .vscode/
 *.swp
 
-# Local config (users create their own)
-# sharktrack_config.json  # Keep template in repo
+# Models (large files - download separately)
+models/species_classifiers/
+models/*.pt
+!models/.gitkeep
 
-# Claude Code
+# User data (not for repo)
+input_videos/*.mp4
+input_videos/*.MP4
+
+# Deprecated/archived code (keep locally, don't push)
+deprecated/
+
+# Claude Code config
 .claude/
 
-# Test directories (local testing)
+# Test files
+test.ipynb
 test_output/
 test_single/
 test_subprocess/
