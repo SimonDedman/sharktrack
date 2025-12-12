@@ -117,6 +117,19 @@ if not exist "sharktrack_config.json" (
     python utils\config_loader.py --create
 )
 
+REM Test network access (triggers Windows Firewall prompt if needed)
+echo.
+echo Checking network access...
+echo (If Windows Firewall asks, click ALLOW)
+echo.
+python -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 5000)); s.close(); print('[OK] Network access confirmed')"
+if errorlevel 1 (
+    echo.
+    echo [WARNING] Could not bind to port 5000
+    echo          Port may be in use, or firewall is blocking Python
+    echo.
+)
+
 echo.
 echo ==========================================
 echo Starting SharkTrack server...
@@ -132,11 +145,7 @@ echo ==========================================
 echo.
 
 REM Start the web GUI
-echo [DEBUG] About to start Python...
 python start_sharktrack.py
-echo.
-echo [DEBUG] Python exited with code: %errorlevel%
-echo.
 
 if errorlevel 1 (
     echo [ERROR] SharkTrack failed to start.
