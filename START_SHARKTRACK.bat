@@ -109,10 +109,10 @@ if not exist "sharktrack_config.json" (
 
 echo.
 echo ==========================================
-echo SharkTrack is ready!
+echo Starting SharkTrack server...
 echo ==========================================
 echo.
-echo Open this URL in your browser:
+echo Once the server starts, open this URL in your browser:
 echo.
 echo    http://localhost:5000
 echo.
@@ -121,17 +121,21 @@ echo (Press Ctrl+C to stop)
 echo ==========================================
 echo.
 
-REM Try to open browser automatically
-start http://localhost:5000
-
 REM Start the web GUI
-python start_sharktrack.py --no-browser
-
-REM If the above fails, try the old method
+python start_sharktrack.py
 if errorlevel 1 (
     echo.
-    echo [INFO] Trying alternative launch method...
-    python web_gui.py
+    echo [ERROR] SharkTrack failed to start.
+    echo.
+    echo Please check the error messages above.
+    echo Common issues:
+    echo   - Missing dependencies: run "pip install -r requirements.txt"
+    echo   - Port 5000 in use: close other applications using that port
+    echo.
 )
 
-pause
+echo.
+echo ==========================================
+echo Server stopped. Press any key to close...
+echo ==========================================
+pause >nul
