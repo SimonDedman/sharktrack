@@ -759,7 +759,7 @@
                         <label class="form-label">Input Videos Folder</label>
                         <div class="form-input with-button">
                             <input type="text" id="inputVideosPath" placeholder="/path/to/BRUV_videos"
-                                   onchange="validatePath(this, 'inputVideos'); saveConfig()">
+                                   onchange="validatePath(this, 'inputVideos'); saveConfig(); checkIncrementalStatus()">
                             <button class="browse-btn" onclick="browsePath('inputVideosPath')">Browse...</button>
                         </div>
                         <p class="form-hint">Root folder containing your BRUV video files</p>
@@ -769,10 +769,19 @@
                         <label class="form-label">Output Results Folder</label>
                         <div class="form-input with-button">
                             <input type="text" id="outputResultsPath" placeholder="/path/to/SharkTrack_Results"
-                                   onchange="validatePath(this, 'outputResults'); saveConfig()">
+                                   onchange="validatePath(this, 'outputResults'); saveConfig(); checkIncrementalStatus()">
                             <button class="browse-btn" onclick="browsePath('outputResultsPath')">Browse...</button>
                         </div>
                         <p class="form-hint">Where SharkTrack will save detection results, thumbnails, and validation files</p>
+                    </div>
+
+                    <!-- Incremental Detection Status -->
+                    <div id="incrementalStatusBox" class="info-box" style="display: none;">
+                        <span class="info-box-icon">📊</span>
+                        <div class="info-box-content">
+                            <h4>Incremental Processing Status</h4>
+                            <div id="incrementalStatusContent"></div>
+                        </div>
                     </div>
 
                     <div class="info-box tip">
@@ -1276,6 +1285,47 @@
                             <option value="16" selected>16 (recommended)</option>
                             <option value="32">32 (high memory/GPU)</option>
                         </select>
+                    </div>
+
+                    <!-- Parallelization Options -->
+                    <div class="card" style="margin: 15px 0; padding: 15px; background: var(--bg-tertiary);">
+                        <h4 style="margin: 0 0 10px 0;">Performance Options</h4>
+
+                        <div class="form-group">
+                            <label class="form-label">
+                                <input type="checkbox" id="trainingUseGpu" onchange="updateGpuOptions()">
+                                Use GPU (if available)
+                            </label>
+                            <span id="gpuStatus" style="font-size: 12px; color: var(--text-secondary); margin-left: 10px;"></span>
+                        </div>
+
+                        <div id="gpuOptions" style="display: none; margin-left: 20px;">
+                            <div class="form-group">
+                                <label class="form-label">
+                                    <input type="checkbox" id="trainingUseMixedPrecision" checked>
+                                    Mixed Precision (faster, less memory)
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Data Loading Workers</label>
+                            <select class="form-input" id="trainingNumWorkers">
+                                <option value="0">0 (single-threaded, most compatible)</option>
+                                <option value="2">2 workers</option>
+                                <option value="4" selected>4 workers (recommended)</option>
+                                <option value="8">8 workers (high-core CPUs)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Gradient Accumulation (for larger effective batch)</label>
+                            <select class="form-input" id="trainingGradAccum">
+                                <option value="1" selected>1 (no accumulation)</option>
+                                <option value="2">2 (effective batch 2x)</option>
+                                <option value="4">4 (effective batch 4x)</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div class="btn-group">
@@ -2101,6 +2151,35 @@
         return await response.json();
     }
 
+    // GPU options toggle
+    function updateGpuOptions() {
+        const useGpu = document.getElementById('trainingUseGpu').checked;
+        document.getElementById('gpuOptions').style.display = useGpu ? 'block' : 'none';
+    }
+
+    // Check GPU availability on page load
+    async function checkGpuAvailability() {
+        try {
+            const response = await fetch('/api/system/info');
+            const info = await response.json();
+            const gpuStatus = document.getElementById('gpuStatus');
+            const gpuCheckbox = document.getElementById('trainingUseGpu');
+
+            if (info.gpu_available) {
+                gpuStatus.innerHTML = `✅ ${info.gpu_name}`;
+                gpuStatus.style.color = 'var(--success)';
+                gpuCheckbox.checked = true;
+                updateGpuOptions();
+            } else {
+                gpuStatus.innerHTML = '❌ No GPU detected (CPU training only)';
+                gpuStatus.style.color = 'var(--text-secondary)';
+                gpuCheckbox.disabled = true;
+            }
+        } catch (e) {
+            console.error('Could not check GPU:', e);
+        }
+    }
+
     async function trainClassifier() {
         if (!window.trainingClasses || window.trainingClasses.length === 0) {
             alert('Please prepare training data first (Step 1).');
@@ -2113,11 +2192,25 @@
         const epochs = document.getElementById('trainingEpochs').value;
         const batchSize = document.getElementById('trainingBatchSize').value;
 
+        // Get parallelization options
+        const useGpu = document.getElementById('trainingUseGpu').checked;
+        const useAmp = document.getElementById('trainingUseMixedPrecision').checked;
+        const numWorkers = parseInt(document.getElementById('trainingNumWorkers').value);
+        const gradAccum = parseInt(document.getElementById('trainingGradAccum').value);
+
+        // Get checkpoint path if continuing from checkpoint
+        const checkpointPath = document.getElementById('importCheckpointPath')?.value || null;
+
         btn.disabled = true;
         btn.textContent = '⏳ Training...';
         progressDiv.style.display = 'block';
         consoleDiv.style.display = 'block';
-        consoleDiv.innerHTML = '<div class="line">Starting classifier training...</div>';
+
+        let statusMsg = 'Starting classifier training';
+        if (useGpu) statusMsg += ' on GPU';
+        if (useAmp && useGpu) statusMsg += ' with mixed precision';
+        statusMsg += '...';
+        consoleDiv.innerHTML = `<div class="line">${statusMsg}</div>`;
 
         try {
             const response = await fetch('/api/classifier/train', {
@@ -2128,13 +2221,20 @@
                     class_mapping: window.trainingClasses.join(','),
                     output_model: 'models/species_classifiers/project_classifier',
                     epochs: parseInt(epochs),
-                    batch_size: parseInt(batchSize)
+                    batch_size: parseInt(batchSize),
+                    use_gpu: useGpu,
+                    use_amp: useAmp,
+                    num_workers: numWorkers,
+                    gradient_accumulation: gradAccum,
+                    checkpoint_path: checkpointPath
                 })
             });
 
             const result = await response.json();
 
             if (result.success && result.process_id) {
+                // Show config summary
+                consoleDiv.innerHTML += `<div class="line">Config: ${result.config.use_gpu ? 'GPU' : 'CPU'}, AMP: ${result.config.use_amp}, Workers: ${result.config.num_workers}</div>`;
                 // Poll for progress
                 pollTrainingProgress(result.process_id);
             } else {
@@ -2396,6 +2496,65 @@
         }
     }
 
+    async function checkIncrementalStatus() {
+        const inputPath = document.getElementById('inputVideosPath').value;
+        const outputPath = document.getElementById('outputResultsPath').value;
+        const statusBox = document.getElementById('incrementalStatusBox');
+        const statusContent = document.getElementById('incrementalStatusContent');
+
+        // Only check if both paths are set
+        if (!inputPath || !outputPath) {
+            statusBox.style.display = 'none';
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/analyze/incremental-status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    input_path: inputPath,
+                    output_path: outputPath
+                })
+            });
+            const status = await response.json();
+
+            if (status.error) {
+                statusBox.style.display = 'none';
+                return;
+            }
+
+            statusBox.style.display = 'block';
+
+            if (!status.has_existing_results) {
+                statusBox.className = 'info-box info';
+                statusContent.innerHTML = `
+                    <p><strong>${status.total_videos}</strong> videos found, ready for analysis.</p>
+                    <p style="font-size: 12px; color: var(--text-muted);">No previous results - all videos will be processed.</p>
+                `;
+            } else if (status.new_videos === 0) {
+                statusBox.className = 'info-box success';
+                statusContent.innerHTML = `
+                    <p>✅ All <strong>${status.total_videos}</strong> videos already processed!</p>
+                    <p><strong>${status.tracks_found_so_far}</strong> tracks found so far.</p>
+                    <p style="font-size: 12px; color: var(--text-muted);">Add new videos to the input folder to process more.</p>
+                `;
+            } else {
+                statusBox.className = 'info-box warning';
+                statusContent.innerHTML = `
+                    <p><strong>${status.new_videos}</strong> new videos to process (of ${status.total_videos} total)</p>
+                    <p><strong>${status.already_processed}</strong> videos already processed (${status.tracks_found_so_far} tracks found)</p>
+                    <p style="font-size: 12px; color: var(--text-muted);">
+                        Incremental mode: Only new videos will be analyzed when you run detection.
+                    </p>
+                `;
+            }
+        } catch (e) {
+            console.error('Could not check incremental status:', e);
+            statusBox.style.display = 'none';
+        }
+    }
+
     function browsePath(inputId) {
         // In production, this would open a file browser dialog via the server
         alert('File browser not available in standalone HTML. Please paste the path manually.');
@@ -2495,6 +2654,9 @@
     document.addEventListener('DOMContentLoaded', () => {
         populateFormFromConfig();
         fetchSystemInfo();
+        checkGpuAvailability();
+        // Check incremental status after a short delay to allow form to populate
+        setTimeout(checkIncrementalStatus, 500);
     });
     </script>
 </body>

@@ -253,6 +253,54 @@ def list_analyses():
     return jsonify(processes)
 
 
+@app.route('/api/analyze/incremental-status', methods=['POST'])
+def incremental_status():
+    """Check incremental detection status - how many videos already processed vs new"""
+    data = request.json
+    input_path = data.get('input_path')
+    output_path = data.get('output_path')
+
+    if not input_path:
+        return jsonify({'error': 'Input path required'}), 400
+
+    # Collect all video files in input folder
+    video_extensions = {'.mp4', '.avi', '.mov', '.mkv', '.m4v', '.MP4', '.AVI', '.MOV', '.MKV', '.M4V'}
+    input_videos = set()
+    for root, _, files in os.walk(input_path):
+        for f in files:
+            if Path(f).suffix in video_extensions:
+                input_videos.add(os.path.join(root, f))
+
+    total_videos = len(input_videos)
+    processed_videos = set()
+    tracks_found = 0
+
+    # Check for existing results
+    if output_path:
+        overview_path = Path(output_path) / 'overview.csv'
+        if overview_path.exists():
+            import pandas as pd
+            try:
+                df = pd.read_csv(overview_path)
+                processed_videos = set(df['video_path'].values.tolist())
+                tracks_found = int(df['tracks_found'].sum())
+            except Exception as e:
+                print(f"Error reading overview.csv: {e}")
+
+    # Calculate new videos
+    new_videos = input_videos - processed_videos
+    already_processed = input_videos & processed_videos
+
+    return jsonify({
+        'total_videos': total_videos,
+        'already_processed': len(already_processed),
+        'new_videos': len(new_videos),
+        'tracks_found_so_far': tracks_found,
+        'has_existing_results': len(processed_videos) > 0,
+        'new_video_list': sorted(list(new_videos))[:10]  # First 10 new videos for preview
+    })
+
+
 @app.route('/api/deployment/analyze', methods=['POST'])
 def analyze_deployment():
     """Analyze video for deployment/retrieval periods"""
@@ -416,12 +464,15 @@ def prepare_classifier_data():
 
 @app.route('/api/classifier/train', methods=['POST'])
 def train_classifier():
-    """Train a species classifier"""
+    """Train a species classifier with optimized parallelization"""
     data = request.json
 
-    # Force CPU training to avoid GPU compatibility issues
     env = os.environ.copy()
-    env['CUDA_VISIBLE_DEVICES'] = ''
+
+    # Allow GPU training if requested and available
+    use_gpu = data.get('use_gpu', False)
+    if not use_gpu:
+        env['CUDA_VISIBLE_DEVICES'] = ''
 
     command = [
         'python3', 'utils/train_species_classifier.py',
@@ -436,6 +487,24 @@ def train_classifier():
     if data.get('batch_size'):
         command.extend(['--batch_size', str(data['batch_size'])])
 
+    # Mixed precision (enabled by default on GPU)
+    if use_gpu and data.get('use_amp', True):
+        command.append('--use_amp')
+    else:
+        command.append('--no_amp')
+
+    # Number of data loading workers
+    if data.get('num_workers'):
+        command.extend(['--num_workers', str(data['num_workers'])])
+
+    # Gradient accumulation for larger effective batch sizes
+    if data.get('gradient_accumulation', 1) > 1:
+        command.extend(['--grad_accum', str(data['gradient_accumulation'])])
+
+    # Continue from checkpoint
+    if data.get('checkpoint_path'):
+        command.extend(['--checkpoint', data['checkpoint_path']])
+
     # Start training in background
     process_id = f"training_{int(time.time())}"
     process = SharkTrackProcess(process_id, command, data['output_model'])
@@ -448,7 +517,13 @@ def train_classifier():
 
     return jsonify({
         'success': True,
-        'process_id': process_id
+        'process_id': process_id,
+        'config': {
+            'use_gpu': use_gpu,
+            'use_amp': use_gpu and data.get('use_amp', True),
+            'num_workers': data.get('num_workers', 'auto'),
+            'gradient_accumulation': data.get('gradient_accumulation', 1)
+        }
     })
 
 

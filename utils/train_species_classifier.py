@@ -1,12 +1,19 @@
 """
 Species Classifier Training Script
 Train a DenseNet121-based species classifier from labeled shark images
+
+Supports:
+- Mixed precision training (AMP) for faster GPU training
+- Multi-worker data loading with pin_memory
+- Gradient accumulation for larger effective batch sizes
+- Checkpoint continuation for distributed training
 """
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
+from torch.cuda.amp import autocast, GradScaler
 from torchvision import models, transforms
 from pathlib import Path
 import cv2
@@ -15,6 +22,7 @@ from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 import click
 import json
+import os
 
 
 class SharkDataset(Dataset):
@@ -118,9 +126,11 @@ def load_training_data(training_dir, class_mapping):
 
 def train_classifier(training_dir, class_mapping, output_dir,
                      epochs=25, batch_size=16, learning_rate=0.001,
-                     validation_split=0.2):
+                     validation_split=0.2, use_amp=True, num_workers=None,
+                     gradient_accumulation_steps=1, progress_callback=None,
+                     checkpoint_path=None):
     """
-    Train species classifier
+    Train species classifier with optimized parallelization
 
     Args:
         training_dir: Directory containing training images
@@ -130,11 +140,31 @@ def train_classifier(training_dir, class_mapping, output_dir,
         batch_size: Training batch size
         learning_rate: Learning rate for optimizer
         validation_split: Fraction of data for validation
+        use_amp: Use automatic mixed precision (faster on modern GPUs)
+        num_workers: Number of data loading workers (default: auto-detect)
+        gradient_accumulation_steps: Accumulate gradients for larger effective batch
+        progress_callback: Optional callback function(epoch, total_epochs, metrics)
+        checkpoint_path: Path to checkpoint to continue training from
+
+    Returns:
+        Dict with training results and model/optimizer for checkpoint creation
     """
 
     # Setup device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Training on device: {device}")
+
+    # Auto-detect optimal number of workers
+    if num_workers is None:
+        num_workers = min(8, os.cpu_count() or 4)
+    print(f"Using {num_workers} data loading workers")
+
+    # Check if mixed precision is available
+    use_amp = use_amp and device.type == 'cuda'
+    if use_amp:
+        print("Mixed precision training ENABLED (faster)")
+    else:
+        print("Mixed precision training disabled (CPU or unsupported GPU)")
 
     # Load training data
     print("\n📂 Loading training data...")
@@ -180,8 +210,26 @@ def train_classifier(training_dir, class_mapping, output_dir,
     train_dataset = SharkDataset(train_paths, train_labels, train_transform)
     val_dataset = SharkDataset(val_paths, val_labels, val_transform)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+    # Optimized DataLoaders with pin_memory for faster GPU transfer
+    pin_memory = device.type == 'cuda'
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=num_workers > 0,
+        prefetch_factor=2 if num_workers > 0 else None
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=num_workers > 0,
+        prefetch_factor=2 if num_workers > 0 else None
+    )
 
     # Build model
     print(f"\n🧠 Building DenseNet121 model for {len(class_mapping)} classes...")
@@ -198,8 +246,28 @@ def train_classifier(training_dir, class_mapping, output_dir,
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
+    # Load from checkpoint if provided
+    start_epoch = 0
+    if checkpoint_path:
+        checkpoint_path = Path(checkpoint_path)
+        weights_path = checkpoint_path / 'classifier_weights.pt'
+        if weights_path.exists():
+            print(f"📂 Loading weights from checkpoint: {checkpoint_path}")
+            model.load_state_dict(torch.load(weights_path, map_location=device))
+            # Try to load optimizer state too
+            opt_path = checkpoint_path / 'optimizer_state.pt'
+            if opt_path.exists():
+                optimizer.load_state_dict(torch.load(opt_path, map_location=device))
+                print("   Loaded optimizer state for smooth continuation")
+
+    # Initialize mixed precision scaler
+    scaler = GradScaler(enabled=use_amp)
+
     # Training loop
     print(f"\n🚀 Starting training for {epochs} epochs...")
+    if gradient_accumulation_steps > 1:
+        print(f"   Using gradient accumulation: {gradient_accumulation_steps} steps")
+        print(f"   Effective batch size: {batch_size * gradient_accumulation_steps}")
     best_val_acc = 0.0
     training_history = []
 
@@ -212,29 +280,36 @@ def train_classifier(training_dir, class_mapping, output_dir,
         model.train()
         running_loss = 0.0
         running_corrects = 0
+        optimizer.zero_grad()
 
         train_bar = tqdm(train_loader, desc='Training')
-        for inputs, labels_batch in train_bar:
-            inputs = inputs.to(device)
-            labels_batch = labels_batch.to(device)
+        for batch_idx, (inputs, labels_batch) in enumerate(train_bar):
+            # Move to device with non_blocking for async transfer
+            inputs = inputs.to(device, non_blocking=True)
+            labels_batch = labels_batch.to(device, non_blocking=True)
 
-            # Zero gradients
-            optimizer.zero_grad()
+            # Mixed precision forward pass
+            with autocast(enabled=use_amp):
+                outputs = model(inputs)
+                _, preds = torch.max(outputs, 1)
+                loss = criterion(outputs, labels_batch)
+                # Scale loss for gradient accumulation
+                loss = loss / gradient_accumulation_steps
 
-            # Forward
-            outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
-            loss = criterion(outputs, labels_batch)
+            # Backward with scaled gradients
+            scaler.scale(loss).backward()
 
-            # Backward
-            loss.backward()
-            optimizer.step()
+            # Step optimizer every gradient_accumulation_steps
+            if (batch_idx + 1) % gradient_accumulation_steps == 0:
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
 
-            # Statistics
-            running_loss += loss.item() * inputs.size(0)
+            # Statistics (scale loss back for logging)
+            running_loss += loss.item() * gradient_accumulation_steps * inputs.size(0)
             running_corrects += torch.sum(preds == labels_batch.data)
 
-            train_bar.set_postfix({'loss': loss.item()})
+            train_bar.set_postfix({'loss': loss.item() * gradient_accumulation_steps})
 
         epoch_loss = running_loss / len(train_dataset)
         epoch_acc = running_corrects.double() / len(train_dataset)
@@ -249,12 +324,13 @@ def train_classifier(training_dir, class_mapping, output_dir,
         with torch.no_grad():
             val_bar = tqdm(val_loader, desc='Validation')
             for inputs, labels_batch in val_bar:
-                inputs = inputs.to(device)
-                labels_batch = labels_batch.to(device)
+                inputs = inputs.to(device, non_blocking=True)
+                labels_batch = labels_batch.to(device, non_blocking=True)
 
-                outputs = model(inputs)
-                _, preds = torch.max(outputs, 1)
-                loss = criterion(outputs, labels_batch)
+                with autocast(enabled=use_amp):
+                    outputs = model(inputs)
+                    _, preds = torch.max(outputs, 1)
+                    loss = criterion(outputs, labels_batch)
 
                 val_running_loss += loss.item() * inputs.size(0)
                 val_running_corrects += torch.sum(preds == labels_batch.data)
@@ -280,6 +356,16 @@ def train_classifier(training_dir, class_mapping, output_dir,
             'val_loss': float(val_loss),
             'val_acc': float(val_acc)
         })
+
+        # Progress callback for UI updates
+        if progress_callback:
+            progress_callback(epoch + 1, epochs, {
+                'train_loss': epoch_loss,
+                'train_acc': float(epoch_acc),
+                'val_loss': val_loss,
+                'val_acc': float(val_acc),
+                'best_val_acc': float(best_val_acc)
+            })
 
     # Save final model
     output_dir = Path(output_dir)
@@ -312,7 +398,10 @@ def train_classifier(training_dir, class_mapping, output_dir,
         'batch_size': batch_size,
         'learning_rate': learning_rate,
         'best_val_accuracy': float(best_val_acc),
-        'device': str(device)
+        'device': str(device),
+        'mixed_precision': use_amp,
+        'num_workers': num_workers,
+        'gradient_accumulation_steps': gradient_accumulation_steps
     }
 
     metadata_path = output_dir / 'metadata.json'
@@ -326,6 +415,18 @@ def train_classifier(training_dir, class_mapping, output_dir,
     print(f"   Model saved to: {output_dir}")
     print(f"{'='*60}")
 
+    # Return results for checkpoint creation
+    return {
+        'model': model,
+        'optimizer': optimizer,
+        'epochs_trained': epochs,
+        'final_accuracy': float(best_val_acc),
+        'training_history': training_history,
+        'class_mapping': class_mapping,
+        'class_to_idx': class_to_idx,
+        'output_dir': str(output_dir)
+    }
+
 
 @click.command()
 @click.option('--training_images', '-i', required=True, help='Path to training images directory')
@@ -335,7 +436,12 @@ def train_classifier(training_dir, class_mapping, output_dir,
 @click.option('--batch_size', default=16, help='Training batch size')
 @click.option('--learning_rate', default=0.001, help='Learning rate')
 @click.option('--validation_split', default=0.2, help='Validation split fraction')
-def main(training_images, class_mapping, output_model, epochs, batch_size, learning_rate, validation_split):
+@click.option('--use_amp/--no_amp', default=True, help='Use mixed precision training (faster on GPU)')
+@click.option('--num_workers', default=None, type=int, help='Number of data loading workers (default: auto)')
+@click.option('--grad_accum', default=1, type=int, help='Gradient accumulation steps')
+@click.option('--checkpoint', default=None, help='Path to checkpoint to continue from')
+def main(training_images, class_mapping, output_model, epochs, batch_size, learning_rate,
+         validation_split, use_amp, num_workers, grad_accum, checkpoint):
     """Train a species classifier from labeled images"""
 
     # Parse class mapping
@@ -352,6 +458,11 @@ def main(training_images, class_mapping, output_model, epochs, batch_size, learn
     print(f"   Batch size: {batch_size}")
     print(f"   Learning rate: {learning_rate}")
     print(f"   Validation split: {validation_split}")
+    print(f"   Mixed precision: {use_amp}")
+    print(f"   Num workers: {num_workers or 'auto'}")
+    print(f"   Gradient accumulation: {grad_accum}")
+    if checkpoint:
+        print(f"   Continuing from: {checkpoint}")
 
     train_classifier(
         training_images,
@@ -360,7 +471,11 @@ def main(training_images, class_mapping, output_model, epochs, batch_size, learn
         epochs=epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
-        validation_split=validation_split
+        validation_split=validation_split,
+        use_amp=use_amp,
+        num_workers=num_workers,
+        gradient_accumulation_steps=grad_accum,
+        checkpoint_path=checkpoint
     )
 
 
