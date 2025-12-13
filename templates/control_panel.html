@@ -1154,13 +1154,78 @@
                     </div>
                 </div>
 
+                <!-- Optional: Import Checkpoint -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Import Checkpoint (Optional)</h3>
+                    </div>
+
+                    <p>Continue training from another project's checkpoint. This enables distributed training across multiple machines.</p>
+
+                    <div class="form-group">
+                        <label class="form-label">Checkpoint Folder</label>
+                        <div class="form-input with-button">
+                            <input type="text" id="importCheckpointPath" placeholder="/path/to/sharktrack_checkpoint_ProjectName_Date">
+                            <button class="browse-btn" onclick="browsePath('importCheckpointPath')">Browse...</button>
+                        </div>
+                        <p class="form-hint">Select a checkpoint folder from another project to continue training from their model</p>
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-secondary" onclick="validateCheckpoint()">
+                            🔍 Validate Checkpoint
+                        </button>
+                        <button class="btn btn-secondary" onclick="listAvailableCheckpoints()">
+                            📋 Find Checkpoints
+                        </button>
+                    </div>
+
+                    <div id="checkpointInfo" style="display: none; margin-top: 15px;">
+                        <div class="info-box success" id="checkpointValid" style="display: none;">
+                            <span class="info-box-icon">✅</span>
+                            <div class="info-box-content">
+                                <h4>Checkpoint Valid</h4>
+                                <div id="checkpointSummary"></div>
+                            </div>
+                        </div>
+                        <div class="info-box error" id="checkpointInvalid" style="display: none;">
+                            <span class="info-box-icon">❌</span>
+                            <div class="info-box-content">
+                                <h4>Checkpoint Invalid</h4>
+                                <p id="checkpointErrors"></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="checkpointList" style="display: none; margin-top: 15px;"></div>
+                </div>
+
                 <!-- Step 1: Prepare Data -->
                 <div class="card">
                     <div class="card-header">
                         <h3 class="card-title">Step 1: Prepare Training Data</h3>
                     </div>
 
-                    <p>Extract validated images organized by species/class. This reads your validation CSVs and copies thumbnails into class folders.</p>
+                    <p>Extract training frames from videos for validated tracks. This gives much better training data than single thumbnails.</p>
+
+                    <div class="form-group">
+                        <label class="form-label">Frames per Track</label>
+                        <select class="form-input" id="framesPerTrack">
+                            <option value="10">10 (fast, smaller dataset)</option>
+                            <option value="20" selected>20 (recommended)</option>
+                            <option value="30">30 (higher quality, larger dataset)</option>
+                            <option value="50">50 (maximum quality)</option>
+                        </select>
+                        <p class="form-hint">More frames = better training but larger dataset and longer extraction</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="useVideoFrames" checked>
+                            Extract frames from videos (recommended)
+                        </label>
+                        <p class="form-hint">Uncheck to use thumbnails only (faster but lower quality)</p>
+                    </div>
 
                     <div class="btn-group">
                         <button class="btn btn-primary" onclick="prepareTrainingData()" id="btnPrepareData">
@@ -1252,6 +1317,30 @@
                     </div>
 
                     <p style="margin-top: 15px;">Your classifier is saved and ready for use with Smart Suggestions.</p>
+
+                    <!-- Export Checkpoint -->
+                    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border);">
+                        <h4>Export Checkpoint for Sharing</h4>
+                        <p style="margin: 10px 0;">Create a checkpoint that others can use to continue training from your model.</p>
+
+                        <div class="form-group">
+                            <label class="form-label">Project Name</label>
+                            <input type="text" class="form-input" id="checkpointProjectName" placeholder="e.g., BRUV_Summer_2022">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Your Initials</label>
+                            <input type="text" class="form-input" id="checkpointUserId" placeholder="e.g., SD" maxlength="5">
+                        </div>
+
+                        <div class="btn-group">
+                            <button class="btn btn-primary" onclick="exportCheckpoint()">
+                                📤 Export Checkpoint
+                            </button>
+                        </div>
+
+                        <div id="checkpointExportStatus" style="display: none; margin-top: 15px;"></div>
+                    </div>
                 </div>
             </div>
 
@@ -1865,26 +1954,77 @@
         const btn = document.getElementById('btnPrepareData');
         const statusDiv = document.getElementById('prepareDataStatus');
         const classDiv = document.getElementById('classDistribution');
+        const useVideoFrames = document.getElementById('useVideoFrames')?.checked ?? true;
+        const framesPerTrack = parseInt(document.getElementById('framesPerTrack')?.value) || 20;
 
         btn.disabled = true;
         btn.textContent = '⏳ Preparing...';
         statusDiv.style.display = 'block';
-        statusDiv.innerHTML = '<div class="line">Starting data preparation...</div>';
 
         try {
-            const response = await fetch('/api/classifier/prepare', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    validation_dir: config.paths.outputResults + '/validation',
-                    output_dir: config.paths.outputResults + '/classifier_training_data'
-                })
-            });
+            let result;
 
-            const result = await response.json();
+            if (useVideoFrames) {
+                // Extract frames from videos (higher quality)
+                statusDiv.innerHTML = '<div class="line">Extracting training frames from videos...</div>';
+                statusDiv.innerHTML += '<div class="line">This extracts multiple frames per track for better training quality.</div>';
+                statusDiv.innerHTML += '<div class="line">(This may take several minutes for large datasets)</div>';
+
+                // Get video directory from config
+                const videoCollections = config.paths.videoCollections || {};
+                const videoDir = Object.values(videoCollections)[0];
+
+                if (!videoDir) {
+                    throw new Error('No video directory configured. Please set up video collections in Project Setup.');
+                }
+
+                // Find validation CSV
+                const validationDir = config.paths.outputResults + '/validation';
+
+                const response = await fetch('/api/extract-training-frames', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        validationCsv: validationDir + '/validation_results.csv',
+                        outputCsv: config.paths.outputResults + '/internal_results/output.csv',
+                        videoDir: videoDir,
+                        outputDir: config.paths.outputResults + '/classifier_training_data',
+                        framesPerTrack: framesPerTrack
+                    })
+                });
+
+                result = await response.json();
+
+                if (result.error) {
+                    // Fallback to thumbnail-based approach
+                    statusDiv.innerHTML += '<div class="line warning">Video extraction failed, falling back to thumbnails...</div>';
+                    result = await prepareThumbnailBased();
+                } else {
+                    // Format result for display
+                    result.success = true;
+                    result.class_counts = result.species || {};
+                    result.total_images = result.total_frames || 0;
+                    result.output_dir = config.paths.outputResults + '/classifier_training_data';
+
+                    // Convert species format to class_counts format
+                    if (result.species) {
+                        result.class_counts = {};
+                        for (const [species, stats] of Object.entries(result.species)) {
+                            result.class_counts[species] = stats.frames || 0;
+                        }
+                    }
+                }
+            } else {
+                // Use thumbnail-based approach (faster but lower quality)
+                statusDiv.innerHTML = '<div class="line">Preparing training data from thumbnails...</div>';
+                result = await prepareThumbnailBased();
+            }
 
             if (result.success) {
-                statusDiv.innerHTML = '<div class="line success">✅ Training data prepared successfully!</div>';
+                statusDiv.innerHTML = `<div class="line success">✅ Training data prepared successfully!</div>`;
+                if (useVideoFrames && result.total_frames) {
+                    statusDiv.innerHTML += `<div class="line">Extracted ${result.total_frames} frames from ${result.total_tracks || '?'} tracks</div>`;
+                }
 
                 // Display class distribution
                 if (result.class_counts) {
@@ -1900,7 +2040,7 @@
                         if (count < 50) lowSampleClasses.push(className);
                     }
                     html += '</table>';
-                    html += `<p style="margin-top: 10px; color: var(--text-secondary);">Total: ${result.total_images} images across ${classes.length} classes</p>`;
+                    html += `<p style="margin-top: 10px; color: var(--text-secondary);">Total: ${result.total_images || Object.values(result.class_counts).reduce((a,b)=>a+b,0)} images across ${classes.length} classes</p>`;
                     classDiv.innerHTML = html;
 
                     // Show warning if low sample classes
@@ -1914,6 +2054,29 @@
                     window.trainingClasses = classes.map(c => c[0]);
                     window.trainingDataDir = result.output_dir;
                 }
+
+                // Check if we should merge with replay samples from checkpoint
+                const checkpointPath = document.getElementById('importCheckpointPath')?.value;
+                if (checkpointPath) {
+                    statusDiv.innerHTML += '<div class="line">Merging with replay samples from checkpoint...</div>';
+                    try {
+                        const mergeResponse = await fetch('/api/training/prepare-with-replay', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                trainingDataDir: window.trainingDataDir,
+                                checkpointPath: checkpointPath
+                            })
+                        });
+                        const mergeResult = await mergeResponse.json();
+                        if (mergeResult.success) {
+                            window.trainingDataDir = mergeResult.merged_training_dir;
+                            statusDiv.innerHTML += '<div class="line success">✅ Replay samples merged</div>';
+                        }
+                    } catch (e) {
+                        statusDiv.innerHTML += `<div class="line warning">Could not merge replay samples: ${e.message}</div>`;
+                    }
+                }
             } else {
                 statusDiv.innerHTML = `<div class="line error">❌ Error: ${result.error}</div>`;
             }
@@ -1923,6 +2086,19 @@
 
         btn.disabled = false;
         btn.textContent = '📦 Prepare Training Data';
+    }
+
+    async function prepareThumbnailBased() {
+        // Original thumbnail-based preparation
+        const response = await fetch('/api/classifier/prepare', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                validation_dir: config.paths.outputResults + '/validation',
+                output_dir: config.paths.outputResults + '/classifier_training_data'
+            })
+        });
+        return await response.json();
     }
 
     async function trainClassifier() {
@@ -2027,6 +2203,141 @@
         };
 
         poll();
+    }
+
+    // ============================================================================
+    // Checkpoint Management
+    // ============================================================================
+
+    async function validateCheckpoint() {
+        const checkpointPath = document.getElementById('importCheckpointPath').value;
+        if (!checkpointPath) {
+            alert('Please enter a checkpoint path first');
+            return;
+        }
+
+        const infoDiv = document.getElementById('checkpointInfo');
+        const validDiv = document.getElementById('checkpointValid');
+        const invalidDiv = document.getElementById('checkpointInvalid');
+        const summaryDiv = document.getElementById('checkpointSummary');
+        const errorsDiv = document.getElementById('checkpointErrors');
+
+        infoDiv.style.display = 'block';
+        validDiv.style.display = 'none';
+        invalidDiv.style.display = 'none';
+
+        try {
+            const response = await fetch('/api/checkpoint/validate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: checkpointPath })
+            });
+
+            const result = await response.json();
+
+            if (result.valid) {
+                validDiv.style.display = 'block';
+                summaryDiv.innerHTML = `
+                    <p><strong>Project:</strong> ${result.summary.project_name || 'Unknown'}</p>
+                    <p><strong>Species:</strong> ${result.summary.species_count || 0}</p>
+                    <p><strong>Tracks:</strong> ${result.summary.total_tracks || 0}</p>
+                    <p><strong>Generation:</strong> ${result.summary.generation || 1}</p>
+                    ${result.warnings ? `<p style="color: var(--warning);">Warnings: ${result.warnings.join(', ')}</p>` : ''}
+                `;
+            } else {
+                invalidDiv.style.display = 'block';
+                errorsDiv.textContent = result.errors ? result.errors.join(', ') : 'Unknown error';
+            }
+        } catch (error) {
+            invalidDiv.style.display = 'block';
+            errorsDiv.textContent = error.message;
+        }
+    }
+
+    async function listAvailableCheckpoints() {
+        const listDiv = document.getElementById('checkpointList');
+        listDiv.style.display = 'block';
+        listDiv.innerHTML = '<p>Searching for checkpoints...</p>';
+
+        try {
+            const response = await fetch('/api/checkpoint/list', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: config.paths.outputResults || '' })
+            });
+
+            const result = await response.json();
+
+            if (result.checkpoints && result.checkpoints.length > 0) {
+                let html = '<h4>Available Checkpoints:</h4><ul style="list-style: none; padding: 0;">';
+                for (const cp of result.checkpoints) {
+                    html += `
+                        <li style="padding: 10px; margin: 5px 0; background: var(--bg); border-radius: 8px; cursor: pointer;"
+                            onclick="document.getElementById('importCheckpointPath').value='${cp.path}'; validateCheckpoint();">
+                            <strong>${cp.project_name || cp.name}</strong>
+                            <br><small>${cp.species_count || '?'} species, ${cp.total_tracks || '?'} tracks</small>
+                            <br><small style="color: var(--text-secondary);">${cp.path}</small>
+                        </li>
+                    `;
+                }
+                html += '</ul>';
+                listDiv.innerHTML = html;
+            } else {
+                listDiv.innerHTML = '<p>No checkpoints found in output directory. Check another location or import manually.</p>';
+            }
+        } catch (error) {
+            listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+        }
+    }
+
+    async function exportCheckpoint() {
+        const projectName = document.getElementById('checkpointProjectName').value || 'SharkTrack_Project';
+        const userId = document.getElementById('checkpointUserId').value || 'USER';
+        const statusDiv = document.getElementById('checkpointExportStatus');
+
+        statusDiv.style.display = 'block';
+        statusDiv.innerHTML = '<p>Creating checkpoint...</p>';
+
+        try {
+            // Get the trained model path and training data directory
+            const trainingDataDir = config.paths.outputResults + '/classifier_training_data';
+            const modelPath = config.paths.outputResults + '/models/species_classifier.pt';
+            const parentCheckpoint = document.getElementById('importCheckpointPath').value || null;
+
+            const response = await fetch('/api/checkpoint/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    trainingDataDir: trainingDataDir,
+                    modelPath: modelPath,
+                    projectName: projectName,
+                    userId: userId,
+                    outputDir: config.paths.outputResults,
+                    parentCheckpoint: parentCheckpoint,
+                    epochsTrained: parseInt(document.getElementById('trainingEpochs').value) || 25,
+                    finalAccuracy: parseFloat(document.getElementById('resultAccuracy').textContent) / 100 || 0
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                statusDiv.innerHTML = `
+                    <div class="info-box success">
+                        <span class="info-box-icon">✅</span>
+                        <div class="info-box-content">
+                            <h4>Checkpoint Created!</h4>
+                            <p>Saved to: ${result.checkpoint_path}</p>
+                            <p>Share this folder with colleagues to let them continue training from your model.</p>
+                        </div>
+                    </div>
+                `;
+            } else {
+                statusDiv.innerHTML = `<p style="color: red;">Error: ${result.error}</p>`;
+            }
+        } catch (error) {
+            statusDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+        }
     }
 
     // ============================================================================

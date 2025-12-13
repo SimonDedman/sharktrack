@@ -931,6 +931,197 @@ def extract_gopro_metadata():
         return jsonify({'error': str(e)}), 500
 
 
+# ============================================================================
+# CHECKPOINT AND TRAINING FRAME MANAGEMENT
+# ============================================================================
+
+@app.route('/api/extract-training-frames', methods=['POST'])
+def extract_training_frames():
+    """Extract training frames from videos based on validation results"""
+    try:
+        from utils.training_frame_extractor import TrainingFrameExtractor
+
+        data = request.json or {}
+        validation_csv = data.get('validationCsv')
+        output_csv = data.get('outputCsv')
+        video_dir = data.get('videoDir')
+        output_dir = data.get('outputDir')
+        frames_per_track = data.get('framesPerTrack', 20)
+
+        if not all([validation_csv, output_csv, video_dir, output_dir]):
+            return jsonify({'error': 'Missing required parameters'}), 400
+
+        extractor = TrainingFrameExtractor(frames_per_track=frames_per_track)
+
+        stats = extractor.extract_training_data(
+            validation_csv=validation_csv,
+            output_csv=output_csv,
+            video_base_dir=video_dir,
+            output_dir=output_dir
+        )
+
+        return jsonify(stats)
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/checkpoint/validate', methods=['POST'])
+def validate_checkpoint():
+    """Validate a checkpoint folder"""
+    try:
+        from utils.checkpoint_manager import CheckpointManager
+
+        data = request.json or {}
+        checkpoint_path = data.get('path')
+
+        if not checkpoint_path:
+            return jsonify({'error': 'No checkpoint path provided'}), 400
+
+        manager = CheckpointManager()
+        result = manager.validate_checkpoint(checkpoint_path)
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/checkpoint/list', methods=['POST'])
+def list_checkpoints():
+    """List available checkpoints in a directory"""
+    try:
+        from utils.checkpoint_manager import CheckpointManager
+
+        data = request.json or {}
+        search_dir = data.get('path', '')
+
+        if not search_dir:
+            # Default to output results directory
+            config_path = 'sharktrack_config.json'
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                search_dir = config.get('paths', {}).get('output_results', '')
+
+        if not search_dir or not os.path.exists(search_dir):
+            return jsonify({'checkpoints': []})
+
+        manager = CheckpointManager()
+        checkpoints = manager.list_checkpoints(search_dir)
+
+        return jsonify({'checkpoints': checkpoints})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/checkpoint/info', methods=['POST'])
+def checkpoint_info():
+    """Get detailed info about a checkpoint"""
+    try:
+        from utils.checkpoint_manager import CheckpointManager
+        from dataclasses import asdict
+
+        data = request.json or {}
+        checkpoint_path = data.get('path')
+
+        if not checkpoint_path:
+            return jsonify({'error': 'No checkpoint path provided'}), 400
+
+        manager = CheckpointManager()
+        manifest = manager.load_manifest(checkpoint_path)
+
+        if manifest:
+            return jsonify(asdict(manifest))
+        else:
+            return jsonify({'error': 'Could not load manifest'}), 404
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/checkpoint/create', methods=['POST'])
+def create_checkpoint():
+    """Create a new checkpoint from trained model"""
+    try:
+        from utils.checkpoint_manager import CheckpointManager
+
+        data = request.json or {}
+        training_data_dir = data.get('trainingDataDir')
+        project_name = data.get('projectName', 'SharkTrack_Project')
+        user_id = data.get('userId', 'USER')
+        model_path = data.get('modelPath')
+        output_dir = data.get('outputDir')
+        parent_checkpoint = data.get('parentCheckpoint')
+        epochs_trained = data.get('epochsTrained', 0)
+        final_accuracy = data.get('finalAccuracy', 0.0)
+
+        if not all([training_data_dir, model_path]):
+            return jsonify({'error': 'Missing required parameters'}), 400
+
+        # Load the model
+        import torch
+        model = torch.load(model_path, map_location='cpu')
+
+        # Create a dummy optimizer (we only need the model weights)
+        # In real usage, this would be the actual optimizer from training
+        optimizer = torch.optim.Adam([torch.zeros(1)], lr=0.001)
+
+        manager = CheckpointManager()
+        checkpoint_path = manager.create_checkpoint(
+            model=model,
+            optimizer=optimizer,
+            training_data_dir=training_data_dir,
+            project_name=project_name,
+            user_id=user_id,
+            output_dir=output_dir,
+            parent_checkpoint=parent_checkpoint,
+            epochs_trained=epochs_trained,
+            final_accuracy=final_accuracy
+        )
+
+        return jsonify({
+            'success': True,
+            'checkpoint_path': checkpoint_path
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/training/prepare-with-replay', methods=['POST'])
+def prepare_training_with_replay():
+    """Prepare training data merged with replay samples from checkpoint"""
+    try:
+        from utils.checkpoint_manager import CheckpointManager
+
+        data = request.json or {}
+        training_data_dir = data.get('trainingDataDir')
+        checkpoint_path = data.get('checkpointPath')
+
+        if not all([training_data_dir, checkpoint_path]):
+            return jsonify({'error': 'Missing required parameters'}), 400
+
+        manager = CheckpointManager()
+        merged_dir = manager.merge_replay_with_training(
+            training_data_dir=training_data_dir,
+            checkpoint_path=checkpoint_path
+        )
+
+        return jsonify({
+            'success': True,
+            'merged_training_dir': merged_dir
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     # Create templates directory if it doesn't exist
     os.makedirs('templates', exist_ok=True)
