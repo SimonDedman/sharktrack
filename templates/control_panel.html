@@ -2103,6 +2103,26 @@
                     // Store for training
                     window.trainingClasses = classes.map(c => c[0]);
                     window.trainingDataDir = result.output_dir;
+
+                    // Show sharing info
+                    statusDiv.innerHTML += `
+                        <div class="info-box tip" style="margin-top: 15px;">
+                            <span class="info-box-icon">📤</span>
+                            <div class="info-box-content">
+                                <h4>Sharing Training Data</h4>
+                                <p>Training data saved to: <code style="font-size: 11px;">${result.output_dir}</code></p>
+                                <p style="margin-top: 8px;">To combine with a colleague's data:</p>
+                                <ol style="margin: 8px 0 0 20px; font-size: 13px;">
+                                    <li>Share this folder (or have them share theirs)</li>
+                                    <li>Copy their species subfolders into yours (or vice versa)</li>
+                                    <li>Train a single classifier on the combined data</li>
+                                </ol>
+                                <p style="margin-top: 8px; font-size: 12px; color: var(--text-muted);">
+                                    This folder contains cropped frames (~224x224 JPEGs) organized by species - much smaller than raw videos.
+                                </p>
+                            </div>
+                        </div>
+                    `;
                 }
 
                 // Check if we should merge with replay samples from checkpoint
