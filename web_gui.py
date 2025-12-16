@@ -610,7 +610,11 @@ def get_config():
     config_path = Path(__file__).parent / 'sharktrack_config.json'
     if config_path.exists():
         with open(config_path) as f:
-            return jsonify(json.load(f))
+            config = json.load(f)
+        # Convert snake_case to camelCase for frontend compatibility
+        if 'metadata' in config and 'user_metadata_file' in config['metadata']:
+            config['metadata']['userMetadataFile'] = config['metadata']['user_metadata_file']
+        return jsonify(config)
     return jsonify({})
 
 
@@ -645,6 +649,10 @@ def save_config_api():
             existing['detection']['confidence_threshold'] = config['detection'].get('confidenceThreshold', 0.25)
             existing['detection']['auto_skip_deployment'] = config['detection'].get('autoSkipDeployment', True)
             existing['detection']['stereo_prefix'] = config['detection'].get('stereoPrefix', None) or None
+
+        if 'metadata' in config:
+            existing.setdefault('metadata', {})
+            existing['metadata']['user_metadata_file'] = config['metadata'].get('userMetadataFile', None) or None
 
         # Save
         with open(config_path, 'w') as f:
@@ -866,6 +874,75 @@ def metadata_template():
         mimetype='text/csv',
         headers={'Content-Disposition': 'attachment; filename=metadata_template.csv'}
     )
+
+
+@app.route('/api/metadata-template-from-videos', methods=['POST'])
+def metadata_template_from_videos():
+    """Generate a metadata CSV template pre-filled with actual video filenames"""
+    import io
+    from pathlib import Path
+
+    try:
+        data = request.json or {}
+        video_dir = data.get('videoDir')
+
+        # Load config if path not provided
+        if not video_dir:
+            config_path = 'sharktrack_config.json'
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                video_dirs = config.get('paths', {}).get('video_dirs', {})
+                if video_dirs:
+                    video_dir = list(video_dirs.values())[0]
+
+        if not video_dir or not os.path.exists(video_dir):
+            return jsonify({'error': 'No valid video directory configured. Please set up Input Videos Folder first.'}), 400
+
+        # Find all video files
+        video_extensions = {'.mp4', '.MP4', '.avi', '.AVI', '.mov', '.MOV', '.mkv', '.MKV'}
+        video_files = []
+
+        for root, dirs, files in os.walk(video_dir):
+            for f in files:
+                if Path(f).suffix in video_extensions:
+                    video_files.append(f)
+
+        if not video_files:
+            return jsonify({'error': f'No video files found in {video_dir}'}), 400
+
+        # Sort for consistent ordering
+        video_files = sorted(set(video_files))
+
+        # Create template with actual video filenames
+        template_data = {
+            'video_filename': video_files,
+            'site_name': [''] * len(video_files),
+            'latitude': [''] * len(video_files),
+            'longitude': [''] * len(video_files),
+            'date': [''] * len(video_files),
+            'time': [''] * len(video_files),
+            'depth_m': [''] * len(video_files),
+            'habitat': [''] * len(video_files),
+            'substrate': [''] * len(video_files),
+            'visibility_m': [''] * len(video_files),
+            'water_temp_c': [''] * len(video_files),
+            'notes': [''] * len(video_files),
+        }
+
+        df = pd.DataFrame(template_data)
+        output = io.StringIO()
+        df.to_csv(output, index=False)
+        output.seek(0)
+
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': 'attachment; filename=metadata_template_for_project.csv'}
+        )
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/export-combined-metadata', methods=['POST'])

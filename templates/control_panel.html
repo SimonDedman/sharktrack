@@ -812,20 +812,72 @@
                         <span class="info-box-icon">📋</span>
                         <div class="info-box-content">
                             <h4>Metadata File Format</h4>
-                            <p>Your CSV should have these columns (additional columns are preserved):</p>
-                            <ul style="margin: 8px 0 0 20px; font-size: 13px;">
-                                <li><strong>video_filename</strong> - Video file name (required, used for matching)</li>
-                                <li><strong>latitude</strong>, <strong>longitude</strong> - GPS coordinates</li>
-                                <li><strong>date</strong>, <strong>time</strong> - Recording date/time</li>
-                                <li><strong>depth_m</strong> - Deployment depth in meters</li>
-                                <li><strong>site_name</strong> - Location/site identifier</li>
-                                <li><strong>habitat</strong> - Habitat type (reef, sand, seagrass, etc.)</li>
-                            </ul>
-                            <p style="margin-top: 8px;">
+                            <p>Your CSV must have a <strong>video_filename</strong> column containing the exact video filenames (e.g., <code>GH010001.MP4</code>). Additional columns are preserved in exports.</p>
+
+                            <details style="margin-top: 10px;">
+                                <summary style="cursor: pointer; color: var(--accent); font-weight: 500;">View column specifications</summary>
+                                <table style="margin-top: 8px; font-size: 12px; width: 100%; border-collapse: collapse;">
+                                    <tr style="background: var(--surface-alt);">
+                                        <th style="padding: 6px; text-align: left; border-bottom: 1px solid var(--border);">Column</th>
+                                        <th style="padding: 6px; text-align: left; border-bottom: 1px solid var(--border);">Required</th>
+                                        <th style="padding: 6px; text-align: left; border-bottom: 1px solid var(--border);">Format</th>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);"><code>video_filename</code></td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);"><strong>Yes</strong></td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);">Exact filename with extension (e.g., <code>GH010001.MP4</code>)</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);"><code>latitude</code></td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);">No</td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);">Decimal degrees (e.g., <code>-23.4567</code>)</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);"><code>longitude</code></td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);">No</td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);">Decimal degrees (e.g., <code>151.1234</code>)</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);"><code>date</code></td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);">No</td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);">ISO format preferred (e.g., <code>2024-01-15</code>)</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);"><code>time</code></td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);">No</td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);">24-hour format (e.g., <code>09:30:00</code>)</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);"><code>depth_m</code></td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);">No</td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);">Numeric, meters (e.g., <code>12.5</code>)</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);"><code>site_name</code></td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);">No</td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);">Text, use underscores not spaces</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);"><code>habitat</code></td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);">No</td>
+                                        <td style="padding: 6px; border-bottom: 1px solid var(--border);">Text (e.g., <code>coral_reef</code>, <code>seagrass</code>)</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 6px;"><em>Any other columns</em></td>
+                                        <td style="padding: 6px;">No</td>
+                                        <td style="padding: 6px;">Preserved in exports (e.g., <code>bait</code>, <code>tide</code>, <code>bruv_id</code>)</td>
+                                    </tr>
+                                </table>
+                            </details>
+
+                            <div style="margin-top: 12px; display: flex; gap: 12px; flex-wrap: wrap;">
                                 <a href="/api/metadata-template" download="metadata_template.csv" style="color: var(--accent);">
-                                    📥 Download template CSV
+                                    📥 Download example template
                                 </a>
-                            </p>
+                                <a href="#" onclick="downloadProjectTemplate(); return false;" style="color: var(--accent);">
+                                    📥 Generate template from my videos
+                                </a>
+                            </div>
                         </div>
                     </div>
 
@@ -2592,6 +2644,44 @@
             return;
         }
         loadMetadataPreview(input.value);
+    }
+
+    async function downloadProjectTemplate() {
+        // Get video directory from config
+        const videoDir = document.getElementById('inputVideosPath').value;
+
+        if (!videoDir) {
+            alert('Please configure the Input Videos Folder first, then generate a template.');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/metadata-template-from-videos', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ videoDir: videoDir })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                alert(error.error || 'Failed to generate template');
+                return;
+            }
+
+            // Download the file
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'metadata_template_for_project.csv';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+
+        } catch (error) {
+            alert('Error generating template: ' + error.message);
+        }
     }
 
     async function loadMetadataPreview(filePath) {
