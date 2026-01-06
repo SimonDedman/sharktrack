@@ -798,6 +798,11 @@ def validate_metadata():
         if not file_path:
             return jsonify({'valid': False, 'error': 'No file path provided'})
 
+        # Normalize path: strip whitespace and quotes (Windows "Copy as path" adds quotes)
+        file_path = file_path.strip().strip('"\'')
+        # Normalize path separators for cross-platform compatibility
+        file_path = os.path.normpath(file_path)
+
         if not os.path.exists(file_path):
             return jsonify({'valid': False, 'error': f'File not found: {file_path}'})
 
