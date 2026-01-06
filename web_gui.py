@@ -791,6 +791,7 @@ def browse_directory():
 @app.route('/api/validate-metadata', methods=['POST'])
 def validate_metadata():
     """Validate and preview a metadata CSV file"""
+    import pandas as pd
     try:
         data = request.get_json()
         file_path = data.get('path', '')
@@ -853,6 +854,7 @@ def validate_metadata():
 def metadata_template():
     """Download a metadata CSV template"""
     import io
+    import pandas as pd
 
     template_data = {
         'video_filename': ['GH010001.MP4', 'GH010002.MP4', 'GH010003.MP4'],
@@ -885,6 +887,7 @@ def metadata_template():
 def metadata_template_from_videos():
     """Generate a metadata CSV template pre-filled with actual video filenames"""
     import io
+    import pandas as pd
     from pathlib import Path
 
     try:
