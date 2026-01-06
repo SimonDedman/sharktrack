@@ -8,13 +8,17 @@ echo       SharkTrack - Marine Video Analysis
 echo ==========================================
 echo.
 
-REM Check Python
-python --version >nul 2>&1
+REM Check Python using py launcher (more reliable on Windows)
+py --version >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Python not found!
     echo.
     echo Please install Python 3.12.10:
     echo   https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe
+    echo.
+    echo Also disable App Execution Aliases in Windows Settings:
+    echo   Settings -^> Apps -^> Advanced app settings -^> App execution aliases
+    echo   Turn OFF both python.exe entries
     echo.
     pause
     exit /b
@@ -25,7 +29,7 @@ REM Create venv if needed
 if not exist "sharktrack-env" (
     echo.
     echo Creating virtual environment...
-    python -m venv sharktrack-env
+    py -m venv sharktrack-env
     echo [OK] Virtual environment created
 )
 
@@ -60,7 +64,7 @@ echo.
 echo Checking network access...
 echo (If Windows Firewall asks, click ALLOW)
 echo.
-python -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 5000)); s.close(); print('[OK] Port 5000 available')"
+py -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 5000)); s.close(); print('[OK] Port 5000 available')"
 
 echo.
 echo ==========================================
@@ -77,7 +81,7 @@ echo ==========================================
 echo.
 
 REM Start the server
-python start_sharktrack.py
+py start_sharktrack.py
 
 echo.
 echo Server stopped.
