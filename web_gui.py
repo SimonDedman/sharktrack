@@ -41,19 +41,30 @@ class SharkTrackProcess:
     def start(self):
         """Start the SharkTrack process"""
         try:
+            # Log startup info for debugging
+            self.output_queue.put(f"Starting process...\n")
+            self.output_queue.put(f"Command: {' '.join(self.command)}\n")
+            self.output_queue.put(f"Working directory: {os.getcwd()}\n")
+            self.output_queue.put("-" * 50 + "\n")
+
             self.process = subprocess.Popen(
                 self.command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 universal_newlines=True,
                 bufsize=1,
-                env=self.env  # Use custom environment if set
+                env=self.env,  # Use custom environment if set
+                cwd=os.getcwd()  # Explicitly set working directory
             )
             self.status = "running"
 
             # Start output reader thread
             threading.Thread(target=self._read_output, daemon=True).start()
 
+        except FileNotFoundError as e:
+            self.status = "failed"
+            self.output_queue.put(f"ERROR: Command not found - {str(e)}\n")
+            self.output_queue.put(f"Python executable: {sys.executable}\n")
         except Exception as e:
             self.status = "failed"
             self.output_queue.put(f"ERROR: {str(e)}\n")
