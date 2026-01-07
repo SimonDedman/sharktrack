@@ -285,6 +285,13 @@ class Model():
 @click.option("--auto_skip_deployment", is_flag=True, default=False, help="Automatically detect and skip deployment/retrieval periods (reduces false positives)")
 @click.option("--deployment_stability_threshold", type=float, default=0.15, help="Motion threshold for deployment detection (0-1, higher=more lenient). Default 0.15")
 def main(**kwargs):
+  print("=" * 50)
+  print("SharkTrack Detection Starting...")
+  print("=" * 50)
+  print(f"Input path: {kwargs['input']}")
+  print(f"Loading YOLO model... (this may take a moment)")
+  print("")
+
   input_path = os.path.normpath(kwargs["input"])
   input_path = convert_to_abs_path(input_path)
   output_path = generate_output_path(kwargs["output"], input_path, annotation_folder="internal_results", resume=kwargs["resume"])
