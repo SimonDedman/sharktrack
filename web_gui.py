@@ -6,6 +6,7 @@ Provides comprehensive web interface for all SharkTrack functionality
 from flask import Flask, render_template, request, jsonify, send_file, Response
 from werkzeug.utils import secure_filename
 import os
+import sys
 import json
 import subprocess
 import threading
@@ -151,7 +152,7 @@ def start_analysis():
     data = request.json
 
     # Build command from parameters
-    command = ['python3', 'app.py']
+    command = [sys.executable, 'app.py']
 
     # Required parameters
     command.extend(['--input', data['input_path']])
@@ -313,7 +314,7 @@ def analyze_deployment():
     try:
         # Run deployment detector
         result = subprocess.run(
-            ['python3', 'utils/deployment_detector.py', video_path],
+            [sys.executable, 'utils/deployment_detector.py', video_path],
             capture_output=True,
             text=True,
             timeout=300
@@ -475,7 +476,7 @@ def train_classifier():
         env['CUDA_VISIBLE_DEVICES'] = ''
 
     command = [
-        'python3', 'utils/train_species_classifier.py',
+        sys.executable, 'utils/train_species_classifier.py',
         '--training_images', data['training_images'],
         '--class_mapping', data['class_mapping'],
         '--output_model', data['output_model']
@@ -676,7 +677,7 @@ def run_thumbnails_script():
         tracks_file = config.get('tracks_file', '')
         output_dir = config.get('output_dir', '')
 
-        cmd = ['python', 'generate_validation_thumbnails.py']
+        cmd = [sys.executable, 'generate_validation_thumbnails.py']
         if tracks_file:
             cmd.extend(['--tracks', tracks_file])
         if output_dir:
@@ -702,7 +703,7 @@ def run_predictions_script():
         config = request.json or {}
         validation_dir = config.get('validation_dir', '')
 
-        cmd = ['python', 'update_predictions.py']
+        cmd = [sys.executable, 'update_predictions.py']
         if validation_dir:
             cmd.extend(['--validation-dir', validation_dir])
 
@@ -725,7 +726,7 @@ def run_maxn_script():
     try:
         config = request.json or {}
 
-        cmd = ['python', '-c', '''
+        cmd = [sys.executable, '-c', '''
 import sys
 sys.path.insert(0, ".")
 from utils.compute_maxn import compute_maxn
