@@ -9,16 +9,15 @@
     },
 
     "paths": {
-        "input_videos": "",
-        "output_results": "",
-        "validation_dir": "",
-        "thumbnails_dir": "",
+        "input_videos": "/media/simon/Extreme SSD/BRUVs_March 2023 and Dec 2025/",
+        "output_results": "/media/simon/Extreme SSD/SHARKTRACK_FINAL_RESULTS_20251111/",
+        "validation_dir": "/media/simon/Extreme SSD/SHARKTRACK_FINAL_RESULTS_20251111/validation/",
+        "thumbnails_dir": "/media/simon/Extreme SSD/SHARKTRACK_FINAL_RESULTS_20251111/detection_thumbnails/",
         "classifier_training_dir": "",
         "models_dir": "./models",
-        "tracks_file": "",
+        "tracks_file": "/media/simon/Extreme SSD/SHARKTRACK_FINAL_RESULTS_20251111/analysis_outputs/internal_results/tracks_for_validation.csv",
         "video_dirs": {
-            "_comment": "Map collection names to video directories, e.g.:",
-            "_example": "Winter_2021: /path/to/BRUV_Winter_2021"
+            "BRUVs_March_Dec_2025": "/media/simon/Extreme SSD/BRUVs_March 2023 and Dec 2025"
         }
     },
 
@@ -60,7 +59,7 @@
         "auto_extract_gopro": true,
         "auto_extract_gps": true,
         "auto_analyze_environment": true,
-        "user_metadata_file": null,
+        "user_metadata_file": "/home/simon/Documents/Si Work/PostDoc Work/Saving The Blue/Data/BRUV/meta_data_reefsharks.csv",
         "default_region": "",
         "default_habitat": "",
         "default_depth_m": null

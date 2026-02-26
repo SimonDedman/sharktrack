@@ -373,28 +373,49 @@ class MetadataExtractor:
 
         return None
 
-    def _analyze_environmental_context(self, video_path: Path) -> EnvironmentalContext:
-        """Analyze video content for environmental context"""
+    def _analyze_environmental_context(self, video_path: Path, timeout: float = 120) -> EnvironmentalContext:
+        """Analyze video content for environmental context
+
+        Samples 11 evenly-spaced frames, discards the first (likely deployment/boat),
+        and analyzes the remaining 10 for water clarity, light level, and substrate.
+        """
         try:
+            import signal
+
+            def _timeout_handler(signum, frame):
+                raise TimeoutError("Frame analysis timed out")
+
             cap = cv2.VideoCapture(str(video_path))
 
-            # Sample frames from video
-            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            sample_frames = []
+            # Set timeout for frame analysis
+            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(int(timeout))
 
-            # Sample every 10% of the video, max 10 frames
-            sample_indices = np.linspace(0, frame_count - 1, min(10, frame_count // 10 + 1), dtype=int)
+            try:
+                # Sample frames from video
+                frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                sample_frames = []
 
-            for idx in sample_indices:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-                ret, frame = cap.read()
-                if ret:
-                    sample_frames.append(frame)
+                # Sample 11 evenly-spaced frames, discard first (deployment/boat)
+                sample_indices = np.linspace(0, frame_count - 1, 11, dtype=int)
 
-            cap.release()
+                for idx in sample_indices:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                    ret, frame = cap.read()
+                    if ret:
+                        sample_frames.append(frame)
 
-            if not sample_frames:
-                return EnvironmentalContext()
+                cap.release()
+
+                # Discard first frame (deployment/boat period)
+                if len(sample_frames) > 1:
+                    sample_frames = sample_frames[1:]
+
+                if not sample_frames:
+                    return EnvironmentalContext()
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
 
             # Analyze frames
             water_clarity = self._estimate_water_clarity(sample_frames)

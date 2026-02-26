@@ -1,3 +1,9 @@
+# Early startup message - print immediately before heavy imports
+import sys
+print("SharkTrack: Starting Python process...", flush=True)
+print("Loading libraries (this may take 10-30 seconds)...", flush=True)
+sys.stdout.flush()
+
 from utils.sharktrack_annotations import save_analyst_output, save_peek_output, extract_sightings, extract_raw_detections, resume_previous_run, save_raw_detections
 from utils.path_resolver import generate_output_path, convert_to_abs_path, sort_files
 from utils.time_processor import ms_to_string
@@ -5,6 +11,7 @@ from utils.video_iterators import stride_iterator, keyframe_iterator, ensure_vid
 from utils.species_classifier import SpeciesClassifier
 from utils.reformat_gopro import valid_video
 from utils.deployment_detector import DeploymentDetector
+from utils.metadata_extractor import MetadataExtractor
 from ultralytics import YOLO
 from tqdm import tqdm
 import pandas as pd
@@ -13,6 +20,9 @@ import torch
 import click
 import cv2
 import os
+
+print("Libraries loaded successfully!", flush=True)
+sys.stdout.flush()
 
 # Fix for PyTorch 2.6+ weights_only default
 import torch.serialization
@@ -68,8 +78,66 @@ class Model():
       self.model_args["imgsz"] = kwargs["imgsz"]
       self.save_output = save_analyst_output
 
+    # Metadata extraction
+    self.extract_metadata = kwargs.get("extract_metadata", False)
+    self.metadata_extractor = None
+    if self.extract_metadata:
+      print("📋 GoPro metadata extraction: ENABLED")
+      self.metadata_extractor = MetadataExtractor()
+
     self.next_track_index, self.processed_videos = resume_previous_run(output_path)
-  
+
+  def _save_video_metadata(self, video_path):
+    """Extract GoPro metadata for a video and save as JSON alongside results."""
+    if not self.metadata_extractor:
+      return
+    try:
+      import json
+      video_name = os.path.splitext(os.path.basename(video_path))[0]
+      metadata = self.metadata_extractor.extract_video_metadata(video_path)
+      json_path = os.path.join(self.output_path, f"{video_name}_gopro_metadata.json")
+      self.metadata_extractor.export_metadata(metadata, json_path)
+      print(f"  📋 Metadata saved: {json_path}")
+    except Exception as e:
+      print(f"  Warning: metadata extraction failed for {video_path}: {e}")
+
+  def _collate_metadata(self):
+    """Collate all per-video metadata JSONs into gopro_metadata.csv in the output directory."""
+    import json as _json
+    metadata_rows = []
+    for f in os.listdir(self.output_path):
+      if f.endswith("_gopro_metadata.json"):
+        video_id = f.replace("_gopro_metadata.json", "")
+        try:
+          with open(os.path.join(self.output_path, f)) as fh:
+            data = _json.load(fh)
+          row = {"video_id": video_id}
+          row["gopro_duration_sec"] = data.get("duration", "")
+          row["gopro_duration_min"] = round(float(data.get("duration", 0)) / 60, 2) if data.get("duration") else ""
+          row["gopro_fps"] = data.get("fps", "")
+          res = data.get("resolution", [0, 0])
+          row["gopro_resolution"] = f"{res[0]}x{res[1]}" if isinstance(res, (list, tuple)) else str(res)
+          row["gopro_file_size_mb"] = round(data.get("file_size", 0) / (1024 * 1024), 2)
+          row["gopro_creation_time"] = data.get("creation_time", "")
+          row["gopro_camera_model"] = data.get("camera_model", "")
+          row["gopro_camera_serial"] = data.get("camera_serial", "")
+          row["gopro_firmware"] = data.get("firmware_version", "")
+          row["gopro_field_of_view"] = data.get("field_of_view", "")
+          env = data.get("environment", {}) or {}
+          row["gopro_water_clarity"] = env.get("water_clarity", "")
+          row["gopro_light_level"] = env.get("light_level", "")
+          row["gopro_substrate_auto"] = env.get("substrate_type", "")
+          row["gopro_substrate_confidence"] = env.get("substrate_confidence", "")
+          metadata_rows.append(row)
+        except Exception as e:
+          print(f"  Warning: failed to read {f}: {e}")
+
+    if metadata_rows:
+      meta_df = pd.DataFrame(metadata_rows)
+      csv_path = os.path.join(self.output_path, "gopro_metadata.csv")
+      meta_df.to_csv(csv_path, index=False)
+      print(f"📋 Collated metadata for {len(metadata_rows)} videos -> {csv_path}")
+
   def _get_frame_skip(self, video_path):
     cap = cv2.VideoCapture(video_path)
     actual_fps = cap.get(cv2.CAP_PROP_FPS)
@@ -247,6 +315,7 @@ class Model():
 
     if valid_video(self.input_path):
       self.inference_type(self.input_path)
+      self._save_video_metadata(self.input_path)
       self.processed_videos.add(self.input_path)
     else:
       for (root, _, files) in os.walk(self.input_path):
@@ -262,11 +331,16 @@ class Model():
               print(f"Video already processed in previous run {video_path}")
               continue
             self.inference_type(video_path)
+            self._save_video_metadata(video_path)
             self.processed_videos.add(video_path)
 
     if len(self.processed_videos) == videos_already_processed:
       print("No BRUVS videos found in the given folder")
       return
+
+    # Collate per-video metadata JSONs into a single CSV
+    if self.extract_metadata:
+      self._collate_metadata()
 
     return self.processed_videos
 
@@ -284,6 +358,7 @@ class Model():
 @click.option("--live",  is_flag=True, default=False, help="Show live tracking video for debugging purposes")
 @click.option("--auto_skip_deployment", is_flag=True, default=False, help="Automatically detect and skip deployment/retrieval periods (reduces false positives)")
 @click.option("--deployment_stability_threshold", type=float, default=0.15, help="Motion threshold for deployment detection (0-1, higher=more lenient). Default 0.15")
+@click.option("--extract_metadata", is_flag=True, default=False, help="Extract GoPro camera metadata (duration, fps, resolution, water clarity, etc.) per video")
 def main(**kwargs):
   print("=" * 50)
   print("SharkTrack Detection Starting...")
