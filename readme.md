@@ -99,6 +99,39 @@ This software and related work was supported by the efforts of:
 
 Filippo Varini, Joel H. Gayford, Jeremy Jenrette, Matthew J. Witt, Francesco Garzon, Francesco Ferretti, Sophie Wilday, Mark E. Bond, Michael R. Heithaus, Danielle Robinson, Devon Carter, Najee Gumbs, Vincent Webster, Ben Glocker, Fabio De Sousa Ribeiro, Rajat Rasal, Orlando Timmerman, Natalie Ng, Rui Wen Lim, Michael Sellgren, Lara Tse, Steven Chen, Maria Pia Donrelas, Manfredi Minervini, Xuen Bei (Bay) Chin, Adam Whiting, Aurora Crocini, Gabriele Bai, Stephanie Guerinfor.
 
+## Contributing
+
+We welcome contributions from the community! To get started:
+
+1. **Fork** the repository on GitHub
+2. **Clone** your fork locally:
+   ```bash
+   git clone https://github.com/<your-username>/sharktrack.git
+   cd sharktrack
+   ```
+3. **Create a branch** for your feature or fix:
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+4. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+5. **Make your changes**, keeping commits focused and descriptive
+6. **Push** your branch to your fork:
+   ```bash
+   git push origin feature/your-feature-name
+   ```
+7. **Open a Pull Request** against the `master` branch of this repository, describing what you changed and why
+
+### Guidelines
+
+- Keep PRs small and focused on a single change
+- Follow the existing code style
+- Test your changes before submitting
+- Update documentation if your change affects usage
+- For large changes or new features, [open an issue](https://github.com/filippovarini/sharktrack/issues) first to discuss your approach
+
 ## Support & Contact
 
 - **Issues** — [Open a GitHub Issue](https://github.com/filippovarini/sharktrack/issues) (we aim to respond within a week)
