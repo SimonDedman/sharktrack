@@ -10,6 +10,7 @@ from utils.time_processor import ms_to_string
 from utils.video_iterators import stride_iterator, keyframe_iterator, ensure_video_readable, cleanup_converted_video
 from utils.species_classifier import SpeciesClassifier
 from utils.reformat_gopro import valid_video
+from utils.metadata_extractor import MetadataExtractor
 from ultralytics import YOLO
 from tqdm import tqdm
 import pandas as pd
@@ -66,7 +67,56 @@ class Model():
       self.model_args["imgsz"] = kwargs["imgsz"]
       self.save_output = save_analyst_output
 
+    # Metadata extraction
+    self.extract_metadata = kwargs.get("extract_metadata", False)
+    self.metadata_extractor = None
+    if self.extract_metadata:
+      print("GoPro metadata extraction: ENABLED")
+      self.metadata_extractor = MetadataExtractor()
+
     self.next_track_index, self.processed_videos = resume_previous_run(output_path)
+
+  def _save_video_metadata(self, video_path):
+    """Extract GoPro metadata for a video and save as JSON alongside results."""
+    if not self.metadata_extractor:
+      return
+    try:
+      import json
+      video_name = os.path.splitext(os.path.basename(video_path))[0]
+      metadata = self.metadata_extractor.extract_video_metadata(video_path)
+      json_path = os.path.join(self.output_path, f"{video_name}_gopro_metadata.json")
+      self.metadata_extractor.export_metadata(metadata, json_path)
+      print(f"  Metadata saved: {json_path}")
+    except Exception as e:
+      print(f"  Warning: metadata extraction failed for {video_path}: {e}")
+
+  def _collate_metadata(self):
+    """Collate all per-video metadata JSONs into gopro_metadata.csv in the output directory."""
+    import json as _json
+    metadata_rows = []
+    for f in os.listdir(self.output_path):
+      if f.endswith("_gopro_metadata.json"):
+        video_id = f.replace("_gopro_metadata.json", "")
+        try:
+          with open(os.path.join(self.output_path, f)) as fh:
+            data = _json.load(fh)
+          row = {"video_id": video_id}
+          row["gopro_duration_sec"] = data.get("duration", "")
+          row["gopro_fps"] = data.get("fps", "")
+          res = data.get("resolution", [0, 0])
+          row["gopro_resolution"] = f"{res[0]}x{res[1]}" if isinstance(res, (list, tuple)) else str(res)
+          row["gopro_file_size_mb"] = round(data.get("file_size", 0) / (1024 * 1024), 2)
+          row["gopro_creation_time"] = data.get("creation_time", "")
+          row["gopro_camera_model"] = data.get("camera_model", "")
+          metadata_rows.append(row)
+        except Exception as e:
+          print(f"  Warning: failed to read {f}: {e}")
+
+    if metadata_rows:
+      meta_df = pd.DataFrame(metadata_rows)
+      csv_path = os.path.join(self.output_path, "gopro_metadata.csv")
+      meta_df.to_csv(csv_path, index=False)
+      print(f"Collated metadata for {len(metadata_rows)} videos -> {csv_path}")
 
   def _get_frame_skip(self, video_path):
     cap = cv2.VideoCapture(video_path)
@@ -178,6 +228,7 @@ class Model():
 
     if valid_video(self.input_path):
       self.inference_type(self.input_path)
+      self._save_video_metadata(self.input_path)
       self.processed_videos.add(self.input_path)
     else:
       for (root, _, files) in os.walk(self.input_path):
@@ -193,7 +244,12 @@ class Model():
               print(f"Video already processed in previous run {video_path}")
               continue
             self.inference_type(video_path)
+            self._save_video_metadata(video_path)
             self.processed_videos.add(video_path)
+
+    # Collate metadata if extraction was enabled
+    if self.metadata_extractor:
+      self._collate_metadata()
 
     if len(self.processed_videos) == videos_already_processed:
       print("No BRUVS videos found in the given folder")
@@ -213,6 +269,7 @@ class Model():
 @click.option("--resume",  is_flag=True, default=False, show_default=True, help="Resume BRUVS running SharkTrack")
 @click.option("--chapters",  is_flag=True, default=False, show_default=True, prompt="Are your videos split in GoPro chapters? [default: No]", help="Aggreagate chapter information into a single video")
 @click.option("--live",  is_flag=True, default=False, help="Show live tracking video for debugging purposes")
+@click.option("--extract-metadata",  is_flag=True, default=False, help="Extract GoPro metadata (camera model, resolution, etc.) for each video")
 def main(**kwargs):
   input_path = os.path.normpath(kwargs["input"])
   input_path = convert_to_abs_path(input_path)
