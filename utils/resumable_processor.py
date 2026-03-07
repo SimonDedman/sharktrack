@@ -409,10 +409,14 @@ def resume_or_start_batch(batch_name: str,
 
 if __name__ == "__main__":
     # Example usage
+    import sys
+    if len(sys.argv) < 3:
+        print("Usage: python resumable_processor.py <batch_name> <input_dir> [output_dir]")
+        sys.exit(1)
     processor = resume_or_start_batch(
-        "BRUV_Summer_2022",
-        "/media/simon/SSK SSD1/",
-        "./complete_bruv_analysis"
+        sys.argv[1],
+        sys.argv[2],
+        sys.argv[3] if len(sys.argv) > 3 else "./batch_output"
     )
 
     if processor:

@@ -272,11 +272,10 @@ class WorkerOptimizer:
         video_extensions = ['.MP4', '.mp4', '.MOV', '.mov', '.AVI', '.avi']
         sample_videos = []
 
-        # Check current directory and common locations
+        # Check current directory and input_videos for sample videos
         search_paths = [
             '.',
-            '/media/simon/SSK SSD1/BRUV_Summer_2022_46_62',  # Smaller test set
-            '/media/simon/SSK SSD1/BRUV_Winter_2021_103_105'  # Even smaller set
+            'input_videos',
         ]
 
         for search_path in search_paths:

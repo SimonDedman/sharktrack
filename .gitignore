@@ -22,6 +22,8 @@ models/species_classifiers/*
 # User data (not for repo)
 input_videos/*.mp4
 input_videos/*.MP4
+thumbnails/
+*.checkpoint.csv
 
 # Deprecated/archived code (keep locally, don't push)
 deprecated/
@@ -33,4 +35,4 @@ deprecated/
 test.ipynb
 test_output/
 test_single/
-test_subprocess/
+test_subprocess/thumbnails/

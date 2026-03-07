@@ -60,7 +60,7 @@ def load_configuration(args=None):
 
 
 # Legacy hardcoded path (used if config not set)
-_LEGACY_VALIDATION_DIR = "/home/simon/Documents/Si Work/PostDoc Work/Saving The Blue/Data/BRUV/REANALYSIS_QAQC_20251202/validation"
+_LEGACY_VALIDATION_DIR = None
 
 # These will be set by main() after loading config
 VALIDATION_DIR = None

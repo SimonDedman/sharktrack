@@ -73,14 +73,12 @@ def load_configuration(args=None):
 
 # Legacy hardcoded paths (used if config not set)
 # Edit sharktrack_config.json to set your paths instead
-_LEGACY_TRACKS_FILE = "/home/simon/Documents/Si Work/PostDoc Work/Saving The Blue/Data/BRUV/REANALYSIS_QAQC_20251202/reanalysis_all_tracks.csv"
-_LEGACY_OUTPUT_DIR = "/home/simon/Documents/Si Work/PostDoc Work/Saving The Blue/Data/BRUV/REANALYSIS_QAQC_20251202/validation"
+_LEGACY_TRACKS_FILE = None
+_LEGACY_OUTPUT_DIR = None
 _LEGACY_VIDEO_DIRS = {
-    "Winter_2021_103_105": "/media/simon/Extreme SSD/BRUV_Winter_2021_103_105",
-    "Summer_2022_1_45": "/media/simon/Extreme SSD/BRUV_Summer_2022_1_45",
-    "Summer_2022_46_62": "/media/simon/Extreme SSD/BRUV_Summer_2022_46_62",
+    # Provide video directories via --video-dir CLI args or config file
 }
-_LEGACY_METADATA_FILE = "/media/simon/Extreme SSD/BRUV_Metadata_Summer 2022_SIMON.xlsx"
+_LEGACY_METADATA_FILE = None
 
 # These will be set by main() after loading config
 TRACKS_FILE = None
