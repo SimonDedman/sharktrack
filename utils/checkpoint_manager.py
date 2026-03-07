@@ -46,6 +46,19 @@ class CheckpointMetadata:
     epochs_trained: int = 0
     final_accuracy: float = 0.0
 
+    # Provenance — where and how the training data was collected
+    gps_locations: List[Dict] = None  # [{lat, lon, label}, ...]
+    region: Optional[str] = None  # e.g. "Caribbean", "Indo-Pacific"
+    country: Optional[str] = None
+    habitat: Optional[str] = None  # e.g. "reef", "pelagic", "mangrove"
+    substrate_types: Dict[str, int] = None  # {sand: 5, coral: 3, ...}
+    water_clarity_mean: Optional[float] = None  # 0-1
+    light_level_mean: Optional[float] = None  # 0-1
+    depth_range: Optional[Tuple[float, float]] = None  # (min_m, max_m)
+    camera_models: List[str] = None  # unique camera models used
+    validated_by: List[str] = None  # who validated the training labels
+    collection_dates: Optional[Tuple[str, str]] = None  # (earliest, latest)
+
     # Replay buffer info
     replay_frames_per_species: int = 30
     replay_total_frames: int = 0
@@ -53,8 +66,8 @@ class CheckpointMetadata:
 
     # Compatibility
     sharktrack_version: str = "1.5.0"
-    model_architecture: str = "efficientnet_b0"
-    input_size: Tuple[int, int] = (224, 224)
+    model_architecture: str = "densenet121"
+    input_size: Tuple[int, int] = (200, 400)
 
     def __post_init__(self):
         if self.ancestry is None:
@@ -63,6 +76,14 @@ class CheckpointMetadata:
             self.species_summary = {}
         if self.videos_included is None:
             self.videos_included = []
+        if self.gps_locations is None:
+            self.gps_locations = []
+        if self.substrate_types is None:
+            self.substrate_types = {}
+        if self.camera_models is None:
+            self.camera_models = []
+        if self.validated_by is None:
+            self.validated_by = []
 
 
 class CheckpointManager:
@@ -81,7 +102,9 @@ class CheckpointManager:
                          final_accuracy: float = 0.0,
                          parent_checkpoint: str = None,
                          output_dir: str = None,
-                         replay_frames_per_species: int = 30) -> str:
+                         replay_frames_per_species: int = 30,
+                         metadata_csv: str = None,
+                         validation_csv: str = None) -> str:
         """
         Create a checkpoint folder with model weights, replay samples, and manifest.
 
@@ -96,6 +119,8 @@ class CheckpointManager:
             parent_checkpoint: Path to parent checkpoint (if continuing)
             output_dir: Where to save checkpoint (default: next to training data)
             replay_frames_per_species: How many frames to save per species for replay
+            metadata_csv: Path to video metadata CSV (GPS, camera, environment)
+            validation_csv: Path to validation CSV (validator IDs, species labels)
 
         Returns:
             Path to created checkpoint folder
@@ -171,6 +196,9 @@ class CheckpointManager:
             if (replay_dir / c).exists()
         )
 
+        # Extract provenance from metadata/validation CSVs
+        provenance = self._extract_provenance(metadata_csv, validation_csv)
+
         # Build lineage
         generation = 1
         ancestry = []
@@ -195,7 +223,8 @@ class CheckpointManager:
             epochs_trained=epochs_trained,
             final_accuracy=final_accuracy,
             replay_frames_per_species=replay_frames_per_species,
-            replay_total_frames=replay_total
+            replay_total_frames=replay_total,
+            **provenance
         )
 
         manifest_path = checkpoint_path / "manifest.json"
@@ -206,6 +235,102 @@ class CheckpointManager:
         self._create_readme(checkpoint_path, metadata)
 
         return str(checkpoint_path)
+
+    def _extract_provenance(self, metadata_csv: str = None,
+                            validation_csv: str = None) -> Dict[str, Any]:
+        """Extract provenance information from metadata and validation CSVs.
+
+        Metadata CSV columns (from MetadataExtractor or GoPro export):
+            latitude, longitude, camera_model, creation_time,
+            water_clarity, light_level, substrate_type, region, depth_estimate
+
+        Validation CSV columns (from validation HTML export):
+            validated_by / validator, species / class_name
+        """
+        provenance = {}
+
+        if metadata_csv:
+            try:
+                import pandas as pd
+                df = pd.read_csv(metadata_csv)
+
+                # GPS locations
+                lat_col = next((c for c in df.columns if c.lower() in
+                               ('latitude', 'lat', 'gps_latitude')), None)
+                lon_col = next((c for c in df.columns if c.lower() in
+                               ('longitude', 'lon', 'gps_longitude')), None)
+                if lat_col and lon_col:
+                    gps_df = df[[lat_col, lon_col]].dropna()
+                    if not gps_df.empty:
+                        provenance['gps_locations'] = [
+                            {'lat': round(r[lat_col], 6), 'lon': round(r[lon_col], 6)}
+                            for _, r in gps_df.drop_duplicates().iterrows()
+                        ]
+
+                # Region / country
+                for field in ('region', 'country', 'habitat'):
+                    col = next((c for c in df.columns if c.lower() == field), None)
+                    if col and df[col].notna().any():
+                        provenance[field] = df[col].dropna().mode().iloc[0]
+
+                # Camera models
+                cam_col = next((c for c in df.columns if c.lower() in
+                               ('camera_model', 'camera', 'model')), None)
+                if cam_col and df[cam_col].notna().any():
+                    provenance['camera_models'] = sorted(
+                        df[cam_col].dropna().unique().tolist())
+
+                # Environmental averages
+                for field, key in [('water_clarity', 'water_clarity_mean'),
+                                   ('light_level', 'light_level_mean')]:
+                    col = next((c for c in df.columns if c.lower() == field), None)
+                    if col and df[col].notna().any():
+                        provenance[key] = round(float(df[col].mean()), 3)
+
+                # Substrate types
+                sub_col = next((c for c in df.columns if c.lower() in
+                               ('substrate_type', 'substrate')), None)
+                if sub_col and df[sub_col].notna().any():
+                    provenance['substrate_types'] = (
+                        df[sub_col].dropna().value_counts().to_dict())
+
+                # Depth range
+                depth_col = next((c for c in df.columns if c.lower() in
+                                 ('depth_estimate', 'depth', 'depth_m')), None)
+                if depth_col and df[depth_col].notna().any():
+                    provenance['depth_range'] = (
+                        round(float(df[depth_col].min()), 1),
+                        round(float(df[depth_col].max()), 1))
+
+                # Date range
+                date_col = next((c for c in df.columns if c.lower() in
+                                ('creation_time', 'date', 'timestamp')), None)
+                if date_col and df[date_col].notna().any():
+                    dates = pd.to_datetime(df[date_col], errors='coerce').dropna()
+                    if not dates.empty:
+                        provenance['collection_dates'] = (
+                            str(dates.min().date()),
+                            str(dates.max().date()))
+
+            except Exception as e:
+                print(f"Warning: Could not extract provenance from metadata CSV: {e}")
+
+        if validation_csv:
+            try:
+                import pandas as pd
+                df = pd.read_csv(validation_csv)
+
+                # Validator IDs
+                val_col = next((c for c in df.columns if c.lower() in
+                               ('validated_by', 'validator', 'user', 'annotator')), None)
+                if val_col and df[val_col].notna().any():
+                    provenance['validated_by'] = sorted(
+                        df[val_col].dropna().unique().tolist())
+
+            except Exception as e:
+                print(f"Warning: Could not extract validators from CSV: {e}")
+
+        return provenance
 
     def _select_diverse_frames(self, frames: List[Path], n: int) -> List[Path]:
         """Select diverse frames from a list, preferring different tracks"""
@@ -258,6 +383,29 @@ Created by: {metadata.created_by}
 """
         for species, stats in metadata.species_summary.items():
             readme_content += f"- {species}: {stats['tracks']} tracks, {stats['frames']} frames\n"
+
+        if metadata.region or metadata.country:
+            readme_content += f"\n## Provenance\n"
+            if metadata.region:
+                readme_content += f"- Region: {metadata.region}\n"
+            if metadata.country:
+                readme_content += f"- Country: {metadata.country}\n"
+            if metadata.habitat:
+                readme_content += f"- Habitat: {metadata.habitat}\n"
+            if metadata.collection_dates:
+                readme_content += f"- Collection period: {metadata.collection_dates[0]} to {metadata.collection_dates[1]}\n"
+            if metadata.camera_models:
+                readme_content += f"- Cameras: {', '.join(metadata.camera_models)}\n"
+            if metadata.depth_range:
+                readme_content += f"- Depth range: {metadata.depth_range[0]}-{metadata.depth_range[1]} m\n"
+            if metadata.substrate_types:
+                readme_content += f"- Substrates: {', '.join(f'{k} ({v})' for k, v in metadata.substrate_types.items())}\n"
+            if metadata.water_clarity_mean is not None:
+                readme_content += f"- Water clarity: {metadata.water_clarity_mean:.2f}\n"
+            if metadata.validated_by:
+                readme_content += f"- Validated by: {', '.join(metadata.validated_by)}\n"
+            if metadata.gps_locations:
+                readme_content += f"- GPS points: {len(metadata.gps_locations)} unique locations\n"
 
         readme_content += f"""
 ## Lineage

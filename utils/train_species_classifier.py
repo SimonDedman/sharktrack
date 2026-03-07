@@ -1,6 +1,6 @@
 """
 Species Classifier Training Script
-Train a DenseNet121-based species classifier from labeled shark images
+Train a DenseNet121-based species classifier from labelled shark images
 
 Supports:
 - Mixed precision training (AMP) for faster GPU training
@@ -128,7 +128,8 @@ def train_classifier(training_dir, class_mapping, output_dir,
                      epochs=25, batch_size=16, learning_rate=0.001,
                      validation_split=0.2, use_amp=True, num_workers=None,
                      gradient_accumulation_steps=1, progress_callback=None,
-                     checkpoint_path=None):
+                     checkpoint_path=None, metadata_csv=None,
+                     validation_csv=None):
     """
     Train species classifier with optimized parallelization
 
@@ -387,6 +388,16 @@ def train_classifier(training_dir, class_mapping, output_dir,
         json.dump(training_history, f, indent=2)
     print(f"💾 Saved training history to {history_path}")
 
+    # Extract provenance from metadata/validation CSVs if provided
+    provenance = {}
+    if metadata_csv or validation_csv:
+        try:
+            from .checkpoint_manager import CheckpointManager
+            mgr = CheckpointManager()
+            provenance = mgr._extract_provenance(metadata_csv, validation_csv)
+        except Exception as e:
+            print(f"Warning: Could not extract provenance: {e}")
+
     # Save training metadata
     metadata = {
         'num_classes': len(class_mapping),
@@ -401,7 +412,8 @@ def train_classifier(training_dir, class_mapping, output_dir,
         'device': str(device),
         'mixed_precision': use_amp,
         'num_workers': num_workers,
-        'gradient_accumulation_steps': gradient_accumulation_steps
+        'gradient_accumulation_steps': gradient_accumulation_steps,
+        'provenance': provenance
     }
 
     metadata_path = output_dir / 'metadata.json'
@@ -440,8 +452,11 @@ def train_classifier(training_dir, class_mapping, output_dir,
 @click.option('--num_workers', default=None, type=int, help='Number of data loading workers (default: auto)')
 @click.option('--grad_accum', default=1, type=int, help='Gradient accumulation steps')
 @click.option('--checkpoint', default=None, help='Path to checkpoint to continue from')
+@click.option('--metadata_csv', default=None, help='Video metadata CSV (GPS, camera, environment) for provenance')
+@click.option('--validation_csv', default=None, help='Validation CSV (validator IDs) for provenance')
 def main(training_images, class_mapping, output_model, epochs, batch_size, learning_rate,
-         validation_split, use_amp, num_workers, grad_accum, checkpoint):
+         validation_split, use_amp, num_workers, grad_accum, checkpoint,
+         metadata_csv, validation_csv):
     """Train a species classifier from labeled images"""
 
     # Parse class mapping
@@ -463,6 +478,10 @@ def main(training_images, class_mapping, output_model, epochs, batch_size, learn
     print(f"   Gradient accumulation: {grad_accum}")
     if checkpoint:
         print(f"   Continuing from: {checkpoint}")
+    if metadata_csv:
+        print(f"   Metadata CSV: {metadata_csv}")
+    if validation_csv:
+        print(f"   Validation CSV: {validation_csv}")
 
     train_classifier(
         training_images,
@@ -475,7 +494,9 @@ def main(training_images, class_mapping, output_model, epochs, batch_size, learn
         use_amp=use_amp,
         num_workers=num_workers,
         gradient_accumulation_steps=grad_accum,
-        checkpoint_path=checkpoint
+        checkpoint_path=checkpoint,
+        metadata_csv=metadata_csv,
+        validation_csv=validation_csv
     )
 
 
