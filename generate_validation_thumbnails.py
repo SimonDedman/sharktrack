@@ -360,6 +360,7 @@ def generate_html_validation(tracks_df, output_dir):
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
             gap: 20px;
+            padding-bottom: 100px;
         }
         .card {
             background: white; border-radius: 8px; overflow: hidden;
@@ -1025,6 +1026,9 @@ def generate_html_validation(tracks_df, output_dir):
 
         // Refresh filter dropdowns to reflect changes
         updateFilterCascade('validation');
+
+        // Auto-refilter so tagged cards disappear when filtering by "Unvalidated"
+        applyFilters();
 
         // Show confirmation
         const count = selected.length;

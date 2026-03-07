@@ -12,6 +12,7 @@ from utils.species_classifier import SpeciesClassifier
 from utils.reformat_gopro import valid_video
 from utils.deployment_detector import DeploymentDetector
 from utils.metadata_extractor import MetadataExtractor
+from utils.surface_filter import apply_surface_filtering_to_results
 from ultralytics import YOLO
 from tqdm import tqdm
 import pandas as pd
@@ -77,6 +78,9 @@ class Model():
       self.model_args["persist"] = True
       self.model_args["imgsz"] = kwargs["imgsz"]
       self.save_output = save_analyst_output
+
+    # Surface filter
+    self.filter_surface = kwargs.get("filter_surface", False)
 
     # Metadata extraction
     self.extract_metadata = kwargs.get("extract_metadata", False)
@@ -264,6 +268,11 @@ class Model():
       save_raw_detections(raw_detections, self.output_path)
 
     sightings_df = pd.DataFrame(sightings)
+
+    # Apply surface filter to downweight likely surface detections
+    if self.filter_surface and not sightings_df.empty:
+      sightings_df = apply_surface_filtering_to_results(sightings_df, video_path)
+
     self.save_results(original_video_path, sightings_df, **{"fps": self.fps, "input": self.input_path})
 
     # Cleanup converted video to free disk space
@@ -358,6 +367,7 @@ class Model():
 @click.option("--live",  is_flag=True, default=False, help="Show live tracking video for debugging purposes")
 @click.option("--auto_skip_deployment", is_flag=True, default=False, help="Automatically detect and skip deployment/retrieval periods (reduces false positives)")
 @click.option("--deployment_stability_threshold", type=float, default=0.15, help="Motion threshold for deployment detection (0-1, higher=more lenient). Default 0.15")
+@click.option("--filter_surface", is_flag=True, default=False, help="Apply surface filter to downweight detections likely to be surface objects (waves, sargassum, equipment)")
 @click.option("--extract_metadata", is_flag=True, default=False, help="Extract GoPro camera metadata (duration, fps, resolution, water clarity, etc.) per video")
 def main(**kwargs):
   print("=" * 50)
