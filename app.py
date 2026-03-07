@@ -10,6 +10,7 @@ from utils.time_processor import ms_to_string
 from utils.video_iterators import stride_iterator, keyframe_iterator, ensure_video_readable, cleanup_converted_video
 from utils.species_classifier import SpeciesClassifier
 from utils.reformat_gopro import valid_video
+from utils.deployment_detector import DeploymentDetector
 from ultralytics import YOLO
 from tqdm import tqdm
 import pandas as pd
@@ -40,6 +41,16 @@ class Model():
     self.output_path = output_path
 
     self.model_path = "models/sharktrack.pt"
+
+    # Deployment detection settings
+    self.auto_skip_deployment = kwargs.get("auto_skip_deployment", False)
+    self.deployment_detector = None
+    if self.auto_skip_deployment:
+      print("Automatic deployment/retrieval detection: ENABLED")
+      print("   This will analyze each video to skip unstable periods")
+      self.deployment_detector = DeploymentDetector(
+        stability_threshold=kwargs.get("deployment_stability_threshold", 0.15)
+      )
 
     self.model_args = {
       "conf": kwargs["conf"],
@@ -113,6 +124,23 @@ class Model():
     original_video_path = video_path
     video_path = ensure_video_readable(video_path, verbose=True)
 
+    # Detect deployment/retrieval periods if enabled
+    skip_start_frame = 0
+    skip_end_frame = float('inf')
+
+    if self.deployment_detector:
+      print("  Analyzing video stability...")
+      start_frame, end_frame, _ = self.deployment_detector.analyze_video_stability(video_path, sample_rate=2)
+      skip_start_frame = start_frame
+      skip_end_frame = end_frame
+
+      cap = cv2.VideoCapture(video_path)
+      fps = cap.get(cv2.CAP_PROP_FPS)
+      cap.release()
+
+      if fps > 0:
+        print(f"  Skipping: 0s-{start_frame/fps:.1f}s (deployment) and {end_frame/fps:.1f}s-end (retrieval)")
+
     model = YOLO(self.model_path)
 
     vid_stride, tot_frames_to_process = self._get_frame_skip(video_path)
@@ -120,14 +148,22 @@ class Model():
     video_iterator = stride_iterator(video_path, vid_stride)
 
     sightings = []
+    skipped_frames = 0
 
     for frame, time, frame_idx in tqdm(video_iterator, total=tot_frames_to_process):
+      # Skip frames outside stable period
+      if self.deployment_detector and (frame_idx < skip_start_frame or frame_idx > skip_end_frame):
+        skipped_frames += 1
+        continue
       results = model.track(
         frame,
         **self.model_args,
         stream=True
       )
       sightings += extract_sightings(video_path, self.input_path, next(results), frame_idx, ms_to_string(time), **{"tracking": True})
+
+    if skipped_frames > 0:
+      print(f"\n  Skipped {skipped_frames} frames during deployment/retrieval")
 
     sightings_df = pd.DataFrame(sightings)
     self.save_results(video_path, sightings_df, **{"fps": self.fps, "input": self.input_path})
@@ -213,6 +249,7 @@ class Model():
 @click.option("--resume",  is_flag=True, default=False, show_default=True, help="Resume BRUVS running SharkTrack")
 @click.option("--chapters",  is_flag=True, default=False, show_default=True, prompt="Are your videos split in GoPro chapters? [default: No]", help="Aggreagate chapter information into a single video")
 @click.option("--live",  is_flag=True, default=False, help="Show live tracking video for debugging purposes")
+@click.option("--auto-skip-deployment",  is_flag=True, default=False, help="Automatically detect and skip deployment/retrieval phases in BRUV videos")
 def main(**kwargs):
   input_path = os.path.normpath(kwargs["input"])
   input_path = convert_to_abs_path(input_path)
