@@ -116,20 +116,20 @@ Supporting files:
 
 Four new modules add training and inference infrastructure:
 
-- `utils/train_species_classifier.py` (483 lines): full DenseNet training pipeline with data augmentation, learning rate scheduling, and early stopping.
+- `utils/train_species_classifier.py` (504 lines): full DenseNet121 training pipeline with data augmentation, learning rate scheduling, mixed precision, and checkpoint continuation. Accepts `--metadata_csv` and `--validation_csv` to embed provenance (GPS, region, substrate, validators) in the trained model's metadata.
 
 - `utils/training_frame_extractor.py` (420 lines): extracts training frames from videos at detection timestamps, crops to bounding box coordinates.
 
-- `utils/checkpoint_manager.py` (500 lines): distributed training checkpoints, allowing multiple users to contribute training data and resume interrupted runs.
+- `utils/checkpoint_manager.py` (648 lines): distributed training checkpoints with provenance tracking. Each checkpoint saves model weights, optimizer state, replay samples (for anti-forgetting), and a manifest recording GPS locations, region, country, habitat, substrate types, water clarity, depth range, camera models, collection dates, and validator IDs. Provenance is extracted from metadata CSVs (produced by `MetadataExtractor`) and validation CSVs (exported from the validation HTML). Supports lineage tracking across multiple training generations.
 
 - `utils/parallel_classifier.py` (257 lines): batched species classification with LRU frame caching. Processes multiple detections per video read instead of one at a time.
 
 
-## Post-Processing Filters (Complete, Not Yet Integrated)
+## Post-Processing Filters
 
 **`utils/surface_filter.py`** (308 lines): probabilistic filter using four weighted features (vertical position 0.30, expected surface location by depth 0.25, blue channel variance 0.25, texture patterns 0.20) to downweight detections likely to be surface objects (waves, sargassum, equipment). Integrated via `app.py --filter_surface`.
 
-**`utils/substrate_classifier.py`** (579 lines): classifies substrate type (sand, coral, rock, seagrass) using computer vision (HSV colour analysis, texture, edge density). Not wired into the pipeline; basic substrate classification is already handled by `metadata_extractor.py`.
+Substrate classification is handled by `metadata_extractor.py` using CV-based heuristics (HSV colour, texture variance, edge density) on sampled frames.
 
 
 ## Validation and Analysis Tools
@@ -174,9 +174,9 @@ Four new modules add training and inference infrastructure:
 
 | File | Lines | Purpose |
 |------|------:|---------|
-| `utils/train_species_classifier.py` | 483 | Training pipeline (DenseNet, augmentation, early stopping) |
+| `utils/train_species_classifier.py` | 504 | Training pipeline (DenseNet121, augmentation, provenance) |
 | `utils/training_frame_extractor.py` | 420 | Frame extraction at detection timestamps |
-| `utils/checkpoint_manager.py` | 500 | Distributed training checkpoints |
+| `utils/checkpoint_manager.py` | 648 | Distributed training checkpoints with provenance |
 | `utils/parallel_classifier.py` | 257 | Batched classification with frame caching |
 
 ### Post-processing and validation
@@ -184,7 +184,6 @@ Four new modules add training and inference infrastructure:
 | File | Lines | Purpose |
 |------|------:|---------|
 | `utils/surface_filter.py` | 308 | Surface false-positive filter |
-| `utils/substrate_classifier.py` | 579 | Substrate type classification |
 | `generate_validation_thumbnails.py` | 1,704 | Thumbnail extraction and validation HTML |
 | `update_predictions.py` | 448 | Temporal smoothing and label propagation |
 | `reclassify_unvalidated.py` | 242 | Re-classify unvalidated tracks from thumbnails |
@@ -214,6 +213,6 @@ Five branches, each self-contained and reviewable independently.
 | `pr/deployment-detection` | `pr/bugfixes` | `utils/deployment_detector.py`, `validate_deployment.py`, `--auto-skip-deployment` integration in `app.py` |
 | `pr/gopro-metadata` | `pr/bugfixes` | `utils/metadata_extractor.py`, `utils/metadata_merger.py`, `--extract_metadata` integration in `app.py` |
 | `pr/web-gui` | `pr/bugfixes` | `web_gui.py`, `start_sharktrack.py`, `utils/config_loader.py`, `templates/`, launchers, `setup_gui.sh` |
-| `pr/classifier-training` | `pr/bugfixes` | `utils/train_species_classifier.py`, `utils/training_frame_extractor.py`, `utils/checkpoint_manager.py`, `utils/parallel_classifier.py` |
+| `pr/classifier-training` | `pr/bugfixes` | `utils/train_species_classifier.py`, `utils/training_frame_extractor.py`, `utils/checkpoint_manager.py`, `utils/parallel_classifier.py` (includes provenance tracking) |
 
 The bugfixes branch is the foundation. The other four branch from it independently and can be merged in any order. Filippo has already adopted the PyTorch monkey-patch via issue #6, so some coordination on the bugfixes branch may be needed.
