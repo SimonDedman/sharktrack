@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>SharkTrack Fork: Changes for Upstream</title>
+<style>body{font-family:Arial,sans-serif;font-size:14px;line-height:1.5;max-width:800px;margin:20px auto;color:#333}
+h1{font-size:20px;border-bottom:1px solid #ccc;padding-bottom:6px}
+h2{font-size:16px;margin-top:24px;color:#1a1a1a}
+h3{font-size:14px;margin-top:16px;color:#444}
+code{background:#f4f4f4;padding:1px 4px;font-size:13px}
+ul{margin:6px 0;padding-left:24px}
+li{margin:3px 0}
+table{border-collapse:collapse;margin:10px 0;font-size:13px}
+th,td{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f4f4f4}
+td:nth-child(2){text-align:right}
+.branch{color:#666;font-style:italic;margin-bottom:8px}
+</style></head><body>
+
+<h1>SharkTrack Fork: Changes for Upstream</h1>
+
+<p>This fork extends SharkTrack with deployment/retrieval detection, GoPro metadata extraction, a web GUI, species classifier training infrastructure, and numerous bug fixes. The changes emerged from analysing 319 BRUV videos across 94 stations, which exposed several bugs and motivated features that the original CLI workflow did not need.</p>
+
+<p>All changes are organised into five PR-ready branches described at the end.</p>
+
+<h2>Bug Fixes</h2>
+<p class="branch">Branch: pr/bugfixes (base: upstream/master)</p>
+
+<h3>PyTorch 2.6 weights_only patch</h3>
+<p>PyTorch 2.6 changed <code>torch.load()</code> to default <code>weights_only=True</code>, breaking model loading. A monkey-patch in <code>app.py</code> wraps <code>torch.load</code> to force <code>weights_only=False</code> when needed. (Upstream adopted a similar fix independently.)</p>
+
+<h3>frame_skip == 0 division-by-zero guard</h3>
+<p><code>_get_frame_skip()</code> in <code>app.py</code> could return 0 on videos with unusual framerates, causing a ZeroDivisionError downstream. Now floors to 1.</p>
+
+<h3>GoPro path quoting in reformat_gopro.py</h3>
+<p>FFmpeg commands failed on filenames containing spaces. Paths are now properly quoted. The function also skips the output directory during recursive walks, preventing infinite recursion when the output folder sits inside the input folder.</p>
+
+<h3>Video validation and reformatting (video_iterators.py)</h3>
+<p>GoPro videos with metadata streams (timecode, telemetry) cause OpenCV read failures after 10-20 frames. Four new functions handle this:</p>
+<ul>
+<li><code>validate_video_readable()</code> tests sequential frame reads</li>
+<li><code>reformat_video_for_opencv()</code> strips non-video streams via FFmpeg (<code>-map 0:v -c copy</code>)</li>
+<li><code>ensure_video_readable()</code> orchestrates test-then-reformat</li>
+<li><code>cleanup_converted_video()</code> removes temporary copies after processing</li>
+</ul>
+<p><code>app.py</code> calls <code>ensure_video_readable()</code> before tracking and <code>cleanup_converted_video()</code> after.</p>
+
+<h3>Windows subprocess fixes</h3>
+<p>All <code>subprocess.Popen</code> calls now use <code>sys.executable</code> instead of hardcoded <code>"python"</code>, which fails on Windows when <code>py.exe</code> is the launcher.</p>
+
+<h3>Startup messages</h3>
+<p><code>app.py</code> prints a startup message before importing PyTorch (which takes 10-30 seconds), so users know the process is loading.</p>
+
+<h3>.gitignore and requirements.txt</h3>
+<p><code>.gitignore</code> updated for thumbnails, checkpoint CSVs, user-trained classifiers, and test directories. <code>requirements.txt</code> adds Flask and click.</p>
+
+
+<h2>Deployment/Retrieval Detection</h2>
+<p class="branch">Branch: pr/deployment-detection (base: pr/bugfixes)</p>
+
+<p>BRUV videos contain three phases: deployment (camera lowered, unstable), stable recording (useful data), and retrieval (camera hauled out). Detecting these boundaries automatically serves two purposes: skipping deployment/retrieval frames during detection (fewer false positives from hands, boats, and surface), and computing accurate stable durations for standardised MaxN windows.</p>
+
+<p><code>utils/deployment_detector.py</code> uses two-phase frame-differencing:</p>
+<ol>
+<li><strong>Deployment</strong>: Sample frames every 15 seconds. Compute normalised frame differences (0-1 motion score), smooth with a window of 3. Find the longest contiguous run below the stability threshold (0.15). The start of that run marks the deployment end.</li>
+<li><strong>Retrieval</strong>: Scan the last 50% of the video for contiguous high-motion blocks. Merge runs separated by single-sample gaps. Validate magnitude (mean > 0.25 or max > 0.4) to distinguish genuine camera haul-out from low-level noise.</li>
+</ol>
+<p>Key parameters: <code>sample_rate=15s</code>, <code>stability_threshold=0.15</code>, <code>min_stable_duration=60s</code>.</p>
+
+<p>Integration: <code>app.py --auto-skip-deployment</code> enables the detector. Frames outside the stable period are skipped during detection.</p>
+
+<p>Tested against 17 ground-truth videos: 9 correct, 1 minor false positive (40 seconds), 0 missed detections, 7 conservative.</p>
+
+<p><code>validate_deployment.py</code> generates an XLSX spreadsheet with per-video deployment results, motion plots, and columns for manual override values.</p>
+
+
+<h2>GoPro Metadata Extraction</h2>
+<p class="branch">Branch: pr/gopro-metadata (base: pr/bugfixes)</p>
+
+<p><code>utils/metadata_extractor.py</code> extracts per-video metadata using three tools:</p>
+<ul>
+<li><strong>Header data</strong> (FFprobe + ExifTool): duration, FPS, resolution, codec, file size, creation time, camera model, serial number, firmware version, lens serial, field of view, auto-rotation.</li>
+<li><strong>Frame analysis</strong> (OpenCV): water clarity (edge density in central region), light level (mean brightness), substrate type (CV-based heuristic), substrate confidence.</li>
+</ul>
+<p>Integration: <code>app.py --extract_metadata</code> saves per-video JSON files alongside detection results, then collates into <code>gopro_metadata.csv</code>.</p>
+
+
+<h2>Web GUI</h2>
+<p class="branch">Branch: pr/web-gui (base: pr/bugfixes)</p>
+
+<p><code>web_gui.py</code> is a Flask-based control panel that replaces the CLI workflow:</p>
+<ul>
+<li><strong>Project Setup</strong>: configure input/output paths, species classifier, metadata file</li>
+<li><strong>Detection</strong>: run SharkTrack with real-time progress</li>
+<li><strong>Validation</strong>: view and validate detections in the browser</li>
+<li><strong>Training</strong>: extract frames, train species classifiers</li>
+<li><strong>Export</strong>: combined metadata, MaxN results</li>
+</ul>
+
+<p>Supporting files:</p>
+<ul>
+<li><code>start_sharktrack.py</code>: cross-platform launcher (handles venv activation, dependency checks)</li>
+<li><code>utils/config_loader.py</code>: configuration management</li>
+<li><code>templates/control_panel.html</code>: main GUI (2,933 lines)</li>
+<li><code>templates/index.html</code>: detection results viewer (1,281 lines)</li>
+<li><code>START_SHARKTRACK.bat</code>, <code>START_SHARKTRACK.command</code>, <code>launch_gui.sh</code>: platform-specific launchers</li>
+<li><code>setup_gui.sh</code>: first-run setup script</li>
+</ul>
+
+
+<h2>Species Classifier Enhancements</h2>
+<p class="branch">Branch: pr/classifier-training (base: pr/bugfixes)</p>
+
+<p>Four new modules add training and inference infrastructure:</p>
+<ul>
+<li><code>utils/train_species_classifier.py</code> (504 lines): full DenseNet121 training pipeline with data augmentation, learning rate scheduling, mixed precision, and checkpoint continuation. Accepts <code>--metadata_csv</code> and <code>--validation_csv</code> to embed provenance (GPS, region, substrate, validators) in the trained model's metadata.</li>
+<li><code>utils/training_frame_extractor.py</code> (420 lines): extracts training frames from videos at detection timestamps, crops to bounding box coordinates.</li>
+<li><code>utils/checkpoint_manager.py</code> (648 lines): distributed training checkpoints with provenance tracking. Each checkpoint saves model weights, optimizer state, replay samples (for anti-forgetting), and a manifest recording GPS locations, region, country, habitat, substrate types, water clarity, depth range, camera models, collection dates, and validator IDs. Supports lineage tracking across multiple training generations.</li>
+<li><code>utils/parallel_classifier.py</code> (257 lines): batched species classification with LRU frame caching. Processes multiple detections per video read instead of one at a time.</li>
+</ul>
+
+
+<h2>Post-Processing Filters</h2>
+
+<p><code>utils/surface_filter.py</code> (308 lines): probabilistic filter using four weighted features (vertical position 0.30, expected surface location by depth 0.25, blue channel variance 0.25, texture patterns 0.20) to downweight detections likely to be surface objects (waves, sargassum, equipment). Integrated via <code>app.py --filter_surface</code>.</p>
+
+<p>Substrate classification is handled by <code>metadata_extractor.py</code> using CV-based heuristics (HSV colour, texture variance, edge density) on sampled frames.</p>
+
+
+<h2>Validation and Analysis Tools</h2>
+
+<ul>
+<li><code>generate_validation_thumbnails.py</code> (1,704 lines): extracts one thumbnail per track (highest-confidence frame), then generates a self-contained interactive HTML page for validation. Supports filters, batch tagging, CSV export, and localStorage persistence.</li>
+<li><code>update_predictions.py</code> (448 lines): temporal smoothing and label propagation. Applies validated species labels to unvalidated tracks in the same video based on temporal proximity and track similarity.</li>
+<li><code>reclassify_unvalidated.py</code> (242 lines): re-runs the species classifier on unvalidated tracks by cropping from existing thumbnails. Checkpoints progress every 50 tracks.</li>
+<li><code>build_station_level_maxn.py</code> (227 lines): aggregates chapter-level MaxN to station level using a configurable time window (default 60 minutes from stable start). Handles multi-chapter GoPro recordings and manual deployment overrides.</li>
+<li><code>plot_duration_maxn.R</code>: diagnostic R script producing a stacked-bar plot of stable duration versus MaxN per station, with track tick marks and a 60-minute reference line.</li>
+</ul>
+
+
+<h2>New Files Summary</h2>
+
+<h3>Core pipeline additions</h3>
+<table>
+<tr><th>File</th><th>Lines</th><th>Purpose</th></tr>
+<tr><td>utils/deployment_detector.py</td><td>423</td><td>Deployment/retrieval detection via frame-differencing</td></tr>
+<tr><td>utils/metadata_extractor.py</td><td>668</td><td>GoPro metadata extraction (FFprobe + ExifTool + OpenCV)</td></tr>
+<tr><td>utils/metadata_merger.py</td><td>343</td><td>Merge metadata from multiple sources</td></tr>
+<tr><td>validate_deployment.py</td><td>360</td><td>XLSX export for manual deployment review</td></tr>
+</table>
+
+<h3>Web GUI</h3>
+<table>
+<tr><th>File</th><th>Lines</th><th>Purpose</th></tr>
+<tr><td>web_gui.py</td><td>1,313</td><td>Flask web interface</td></tr>
+<tr><td>start_sharktrack.py</td><td>359</td><td>Cross-platform launcher</td></tr>
+<tr><td>utils/config_loader.py</td><td>385</td><td>Configuration management</td></tr>
+<tr><td>templates/control_panel.html</td><td>2,933</td><td>Main control panel</td></tr>
+<tr><td>templates/index.html</td><td>1,281</td><td>Detection results viewer</td></tr>
+<tr><td>START_SHARKTRACK.bat</td><td>89</td><td>Windows launcher</td></tr>
+<tr><td>START_SHARKTRACK.command</td><td>130</td><td>macOS/Linux launcher</td></tr>
+<tr><td>launch_gui.sh</td><td>97</td><td>Linux launcher</td></tr>
+<tr><td>setup_gui.sh</td><td>55</td><td>Setup script</td></tr>
+</table>
+
+<h3>Species classifier infrastructure</h3>
+<table>
+<tr><th>File</th><th>Lines</th><th>Purpose</th></tr>
+<tr><td>utils/train_species_classifier.py</td><td>504</td><td>Training pipeline (DenseNet121, augmentation, provenance)</td></tr>
+<tr><td>utils/training_frame_extractor.py</td><td>420</td><td>Frame extraction at detection timestamps</td></tr>
+<tr><td>utils/checkpoint_manager.py</td><td>648</td><td>Distributed training checkpoints with provenance</td></tr>
+<tr><td>utils/parallel_classifier.py</td><td>257</td><td>Batched classification with frame caching</td></tr>
+</table>
+
+<h3>Post-processing and validation</h3>
+<table>
+<tr><th>File</th><th>Lines</th><th>Purpose</th></tr>
+<tr><td>utils/surface_filter.py</td><td>308</td><td>Surface false-positive filter</td></tr>
+<tr><td>generate_validation_thumbnails.py</td><td>1,704</td><td>Thumbnail extraction and validation HTML</td></tr>
+<tr><td>update_predictions.py</td><td>448</td><td>Temporal smoothing and label propagation</td></tr>
+<tr><td>reclassify_unvalidated.py</td><td>242</td><td>Re-classify unvalidated tracks from thumbnails</td></tr>
+<tr><td>build_station_level_maxn.py</td><td>227</td><td>Station-level MaxN aggregation</td></tr>
+</table>
+
+<h3>Modified upstream files</h3>
+<table>
+<tr><th>File</th><th>Lines</th><th>Nature of change</th></tr>
+<tr><td>app.py</td><td>391</td><td>Bug fixes, deployment detection, metadata extraction, video validation</td></tr>
+<tr><td>utils/video_iterators.py</td><td>204</td><td>Four new functions for video validation/reformatting</td></tr>
+<tr><td>utils/reformat_gopro.py</td><td>54</td><td>Path quoting, output directory skip</td></tr>
+<tr><td>utils/sharktrack_annotations.py</td><td>505</td><td>Raw detection export, metadata integration</td></tr>
+<tr><td>utils/image_processor.py</td><td>113</td><td>extract_frame_at_time() for training</td></tr>
+<tr><td>utils/species_classifier.py</td><td>74</td><td>CPU fallback, DenseNet loading</td></tr>
+<tr><td>utils/compute_maxn.py</td><td>138</td><td>Edge case fixes</td></tr>
+<tr><td>utils/path_resolver.py</td><td>59</td><td>Path handling fixes</td></tr>
+</table>
+
+
+<h2>PR Strategy</h2>
+
+<p>Five branches, each self-contained and reviewable independently.</p>
+
+<table>
+<tr><th>Branch</th><th>Base</th><th>Scope</th></tr>
+<tr><td>pr/bugfixes</td><td>upstream/master</td><td>All bug fixes: PyTorch patch, frame_skip guard, GoPro path quoting, video validation, Windows subprocess, startup messages, .gitignore, requirements.txt</td></tr>
+<tr><td>pr/deployment-detection</td><td>pr/bugfixes</td><td>deployment_detector.py, validate_deployment.py, --auto-skip-deployment in app.py</td></tr>
+<tr><td>pr/gopro-metadata</td><td>pr/bugfixes</td><td>metadata_extractor.py, metadata_merger.py, --extract_metadata in app.py</td></tr>
+<tr><td>pr/web-gui</td><td>pr/bugfixes</td><td>web_gui.py, start_sharktrack.py, config_loader.py, templates/, launchers, setup_gui.sh</td></tr>
+<tr><td>pr/classifier-training</td><td>pr/bugfixes</td><td>train_species_classifier.py, training_frame_extractor.py, checkpoint_manager.py, parallel_classifier.py (includes provenance tracking)</td></tr>
+</table>
+
+<p>The bugfixes branch is the foundation. The other four branch from it independently and can be merged in any order. Filippo has already adopted the PyTorch monkey-patch via issue #6, so some coordination on the bugfixes branch may be needed.</p>
+
+</body></html>
