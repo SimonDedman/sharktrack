@@ -31,6 +31,13 @@ def key(vid, tid):
         return f'{vid}|{tid}'
 
 
+def col_agg(df, col, how):
+    """Aggregate an optional column; NaN when the per-chapter table does not have it."""
+    if col not in df.columns:
+        return np.nan
+    return getattr(df[col], how)()
+
+
 def parse_time(t):
     m = re.match(r'(\d+)h:(\d+)m:(\d+)s:(\d+)ms', str(t))
     if m:
@@ -246,13 +253,13 @@ def main():
         row['gopro_auto_rotation'] = meta.get('gopro_auto_rotation', '')
         row['gopro_firmware'] = meta.get('gopro_firmware', '')
         row['gopro_creation_time'] = meta.get('gopro_creation_time', '')
-        row['gopro_total_duration_sec'] = frows['gopro_duration_sec'].sum()
-        row['gopro_total_duration_min'] = frows['gopro_duration_min'].sum()
-        row['gopro_total_file_size_mb'] = frows['gopro_file_size_mb'].sum()
-        row['gopro_water_clarity'] = frows['gopro_water_clarity'].mean()
-        row['gopro_light_level'] = frows['gopro_light_level'].mean()
+        row['gopro_total_duration_sec'] = col_agg(frows, 'gopro_duration_sec', 'sum')
+        row['gopro_total_duration_min'] = col_agg(frows, 'gopro_duration_min', 'sum')
+        row['gopro_total_file_size_mb'] = col_agg(frows, 'gopro_file_size_mb', 'sum')
+        row['gopro_water_clarity'] = col_agg(frows, 'gopro_water_clarity', 'mean')
+        row['gopro_light_level'] = col_agg(frows, 'gopro_light_level', 'mean')
         row['gopro_substrate_auto'] = meta.get('gopro_substrate_auto', '')
-        row['gopro_substrate_confidence'] = frows['gopro_substrate_confidence'].mean()
+        row['gopro_substrate_confidence'] = col_agg(frows, 'gopro_substrate_confidence', 'mean')
 
         tg_maxn = maxn_by_taxon(gw)
         for tg in ['shark', 'ray_skate', 'teleost', 'invertebrate', 'turtle', 'other']:
