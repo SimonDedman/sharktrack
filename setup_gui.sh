@@ -39,6 +39,11 @@ mkdir -p templates
 mkdir -p static
 mkdir -p models
 
+# Desktop launcher for this install location (git-ignored; template keeps no personal paths)
+if [ -f SharkTrack.desktop.template ]; then
+    sed "s#@INSTALL_DIR@#$(pwd)#g" SharkTrack.desktop.template > SharkTrack.desktop
+fi
+
 echo ""
 echo "✅ Setup complete!"
 echo ""

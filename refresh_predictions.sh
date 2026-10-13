@@ -2,7 +2,7 @@
 # Refresh smart predictions after validation
 # Run this after exporting CSV from the validation HTML, then refresh your browser
 
-cd /home/simon/Installers/sharktrack-1.5
+cd "$(dirname "$(readlink -f "$0")")"
 source sharktrack-env/bin/activate
 
 echo "=== Updating smart predictions ==="
