@@ -26,6 +26,7 @@ from datetime import datetime
 import json
 import re
 import argparse
+import html
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -302,7 +303,7 @@ def load_existing_validations(output_dir):
     return validation_state
 
 
-def generate_html_validation(tracks_df, output_dir):
+def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation"):
     """Generate interactive HTML validation page."""
 
     # Load smart predictions if they exist
@@ -324,7 +325,7 @@ def generate_html_validation(tracks_df, output_dir):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SharkTrack Validation - Reanalysis</title>
+    <title>@@PAGE_TITLE@@</title>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -436,7 +437,7 @@ def generate_html_validation(tracks_df, output_dir):
 </head>
 <body>
     <div class="header">
-        <h1>SharkTrack Validation - Reanalysis Results</h1>
+        <h1>@@PAGE_TITLE@@</h1>
         <p>Generated: ''' + datetime.now().strftime('%Y-%m-%d %H:%M') + '''</p>
         <div class="stats">
             <div class="stat">
@@ -1603,7 +1604,7 @@ def generate_html_validation(tracks_df, output_dir):
 
     html_path = os.path.join(output_dir, "validation.html")
     with open(html_path, 'w') as f:
-        f.write(html_template)
+        f.write(html_template.replace('@@PAGE_TITLE@@', html.escape(title)))
 
     print(f"HTML validation page saved to: {html_path}")
     return html_path
@@ -1625,6 +1626,8 @@ def main():
     parser.add_argument('--output', '-o', type=str, help='Output directory for validation files')
     parser.add_argument('--video-dir', '-v', action='append',
                        help='Video directory mapping: CollectionName=/path/to/videos (can use multiple times)')
+    parser.add_argument('--title', type=str, default='SharkTrack Validation',
+                       help='Title of the validation page (default: SharkTrack Validation)')
     parser.add_argument('--max-tracks', type=int, help='Maximum number of tracks to process (for testing)')
 
     args = parser.parse_args()
@@ -1691,7 +1694,7 @@ def main():
 
     # Generate HTML validation page
     print(f"\nGenerating HTML validation page...")
-    html_path = generate_html_validation(thumb_df, OUTPUT_DIR)
+    html_path = generate_html_validation(thumb_df, OUTPUT_DIR, title=args.title)
 
     print("\n" + "=" * 70)
     print("COMPLETE!")
