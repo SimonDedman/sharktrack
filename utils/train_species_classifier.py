@@ -249,30 +249,45 @@ def train_classifier(training_dir, class_mapping, output_dir,
 
     # Load from checkpoint if provided
     start_epoch = 0
+    best_val_acc = 0.0
+    training_history = []
+
     if checkpoint_path:
         checkpoint_path = Path(checkpoint_path)
-        weights_path = checkpoint_path / 'classifier_weights.pt'
-        if weights_path.exists():
-            print(f"📂 Loading weights from checkpoint: {checkpoint_path}")
-            model.load_state_dict(torch.load(weights_path, map_location=device))
-            # Try to load optimizer state too
-            opt_path = checkpoint_path / 'optimizer_state.pt'
-            if opt_path.exists():
-                optimizer.load_state_dict(torch.load(opt_path, map_location=device))
-                print("   Loaded optimizer state for smooth continuation")
+        # Try epoch checkpoint first (full state with optimizer/scheduler)
+        epoch_ckpt = checkpoint_path / 'epoch_checkpoint.pt'
+        if epoch_ckpt.exists():
+            print(f"📂 Resuming from epoch checkpoint: {epoch_ckpt}")
+            ckpt = torch.load(epoch_ckpt, map_location=device)
+            model.load_state_dict(ckpt['model_state_dict'])
+            optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+            scheduler.load_state_dict(ckpt['scheduler_state_dict'])
+            start_epoch = ckpt['epoch']
+            best_val_acc = ckpt.get('best_val_acc', 0.0)
+            training_history = ckpt.get('training_history', [])
+            print(f"   Resuming from epoch {start_epoch}, best val acc: {best_val_acc:.4f}")
+        else:
+            # Fall back to legacy weights-only checkpoint
+            weights_path = checkpoint_path / 'classifier_weights.pt'
+            if weights_path.exists():
+                print(f"📂 Loading weights from checkpoint: {checkpoint_path}")
+                model.load_state_dict(torch.load(weights_path, map_location=device))
+                opt_path = checkpoint_path / 'optimizer_state.pt'
+                if opt_path.exists():
+                    optimizer.load_state_dict(torch.load(opt_path, map_location=device))
+                    print("   Loaded optimizer state for smooth continuation")
 
     # Initialize mixed precision scaler
     scaler = GradScaler(enabled=use_amp)
 
     # Training loop
-    print(f"\n🚀 Starting training for {epochs} epochs...")
+    remaining = epochs - start_epoch
+    print(f"\n🚀 Starting training for {epochs} epochs (starting at epoch {start_epoch + 1})...")
     if gradient_accumulation_steps > 1:
         print(f"   Using gradient accumulation: {gradient_accumulation_steps} steps")
         print(f"   Effective batch size: {batch_size * gradient_accumulation_steps}")
-    best_val_acc = 0.0
-    training_history = []
 
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         print(f"\n{'='*60}")
         print(f"Epoch {epoch+1}/{epochs}")
         print('='*60)
@@ -357,6 +372,23 @@ def train_classifier(training_dir, class_mapping, output_dir,
             'val_loss': float(val_loss),
             'val_acc': float(val_acc)
         })
+
+        # Epoch checkpoint — save after every epoch so training can resume
+        output_dir_p = Path(output_dir)
+        output_dir_p.mkdir(parents=True, exist_ok=True)
+        ckpt_path = output_dir_p / 'epoch_checkpoint.pt'
+        torch.save({
+            'epoch': epoch + 1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
+            'best_val_acc': float(best_val_acc),
+            'training_history': training_history,
+        }, ckpt_path)
+        # Also save best weights separately
+        if val_acc >= best_val_acc:
+            torch.save(model.state_dict(), output_dir_p / 'best_weights.pt')
+        print(f"  💾 Checkpoint saved (epoch {epoch + 1})")
 
         # Progress callback for UI updates
         if progress_callback:
