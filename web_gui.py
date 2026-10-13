@@ -629,6 +629,8 @@ def get_results(result_path):
 def get_config():
     """Get current configuration"""
     config_path = Path(__file__).parent / 'sharktrack_config.json'
+    if not config_path.exists():
+        config_path = Path(__file__).parent / 'sharktrack_config.example.json'  # fresh clone
     if config_path.exists():
         with open(config_path) as f:
             config = json.load(f)
@@ -648,8 +650,9 @@ def save_config_api():
 
         # Merge with existing config
         existing = {}
-        if config_path.exists():
-            with open(config_path) as f:
+        seed_path = config_path if config_path.exists() else Path(__file__).parent / 'sharktrack_config.example.json'
+        if seed_path.exists():
+            with open(seed_path) as f:
                 existing = json.load(f)
 
         # Map GUI config to file config structure

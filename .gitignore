@@ -36,3 +36,7 @@ test.ipynb
 test_output/
 test_single/
 test_subprocess/thumbnails/
+
+# Per-machine configuration (copy sharktrack_config.example.json)
+sharktrack_config.json
+SharkTrack.desktop

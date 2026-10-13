@@ -214,8 +214,8 @@ def check_config():
             print(f"[WARNING] Config file has errors: {e}")
             return False
     else:
-        print("[INFO] No configuration file found")
-        print("       A default config will be created")
+        print("[INFO] No sharktrack_config.json yet (it is git-ignored and per machine)")
+        print("       It is created from sharktrack_config.example.json when you save settings in the Control Panel")
         return True
 
 

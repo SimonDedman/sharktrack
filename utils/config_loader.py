@@ -31,9 +31,7 @@ DEFAULTS = {
         "models_dir": "./models"
     },
     "detection": {
-        "model": "models/shark_detector.pt",
         "confidence_threshold": 0.25,
-        "image_size": 1280,
         "device": "auto",
         "stereo_prefix": None,
         "auto_skip_deployment": True,
@@ -98,6 +96,7 @@ def find_config_file() -> Optional[Path]:
     2. ./sharktrack_config.json (current directory)
     3. {SHARKTRACK_ROOT}/sharktrack_config.json
     4. ~/.sharktrack/config.json (user home)
+    5. {SHARKTRACK_ROOT}/sharktrack_config.example.json (shipped placeholder defaults)
     """
     # 1. Environment variable
     env_config = os.environ.get("SHARKTRACK_CONFIG")
@@ -120,6 +119,11 @@ def find_config_file() -> Optional[Path]:
     home_config = Path.home() / ".sharktrack" / "config.json"
     if home_config.exists():
         return home_config
+
+    # 5. Shipped example (placeholder paths), so a fresh clone has a working default
+    example_config = get_sharktrack_root() / "sharktrack_config.example.json"
+    if example_config.exists():
+        return example_config
 
     return None
 
