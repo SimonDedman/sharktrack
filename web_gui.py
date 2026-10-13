@@ -197,6 +197,14 @@ def start_analysis():
 
     if data.get('chapters'):
         command.append('--chapters')
+    else:
+        command.append('--no-chapters')
+
+    if data.get('extract_metadata'):
+        command.append('--extract_metadata')
+
+    if data.get('filter_surface'):
+        command.append('--filter_surface')
 
     if data.get('auto_skip_deployment'):
         command.append('--auto_skip_deployment')
@@ -734,20 +742,63 @@ def run_predictions_script():
 
 @app.route('/api/scripts/maxn', methods=['POST'])
 def run_maxn_script():
-    """Run MaxN calculation"""
+    """Run build_station_level_maxn.py (the single MaxN path)."""
     try:
-        config = request.json or {}
-
-        cmd = [sys.executable, '-u', '-c', '''
-import sys
-sys.path.insert(0, ".")
-from utils.compute_maxn import compute_maxn
-# Implementation would go here
-print("MaxN calculation complete")
-''']
+        cfg = request.json or {}
+        cmd, error = build_maxn_command(cfg)
+        if error:
+            return jsonify({'success': False, 'error': error}), 400
 
         process_id = f"maxn_{int(time.time())}"
-        proc = SharkTrackProcess(process_id, cmd, '')
+        proc = SharkTrackProcess(process_id, cmd, cfg.get('output', ''))
+        proc.start()
+
+        with process_lock:
+            running_processes[process_id] = proc
+
+        return jsonify({'success': True, 'process_id': process_id})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def build_maxn_command(cfg):
+    """Command line for build_station_level_maxn.py from the GUI payload. Returns (cmd, error)."""
+    for key, label in (('chapters_csv', 'per-chapter table'), ('durations_csv', 'durations table'),
+                       ('output', 'output path')):
+        if not cfg.get(key):
+            return None, f'Missing {label}'
+    detections, validations = cfg.get('detections') or [], cfg.get('validations') or []
+    if not detections or not validations:
+        return None, 'Give at least one detection CSV and one validation CSV'
+    cmd = [sys.executable, '-u', 'build_station_level_maxn.py',
+           '--maxn-csv', cfg['chapters_csv'], '--durations-csv', cfg['durations_csv'],
+           '--detections', *detections, '--validations', *validations,
+           '--output', cfg['output']]
+    if cfg.get('window_minutes'):
+        cmd.extend(['--window-minutes', str(cfg['window_minutes'])])
+    Path(cfg['output']).parent.mkdir(parents=True, exist_ok=True)
+    return cmd, None
+
+
+@app.route('/api/scripts/timeline', methods=['POST'])
+def run_timeline_script():
+    """Run utils/station_timeline.py to build chapters.csv and station_level_durations.csv."""
+    try:
+        cfg = request.json or {}
+        collections = cfg.get('collections') or []
+        if not collections or not cfg.get('output_dir'):
+            return jsonify({'success': False, 'error': 'Give at least one NAME=FOLDER collection'}), 400
+        cmd = [sys.executable, '-u', 'utils/station_timeline.py', '--output-dir', cfg['output_dir']]
+        for c in collections:
+            cmd.extend(['--collection', c])
+        if cfg.get('settle_csv'):
+            cmd.extend(['--settle-csv', cfg['settle_csv']])
+        else:
+            cmd.append('--no-settle-times')
+
+        process_id = f"timeline_{int(time.time())}"
+        proc = SharkTrackProcess(process_id, cmd, cfg['output_dir'])
         proc.start()
 
         with process_lock:

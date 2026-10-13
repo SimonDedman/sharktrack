@@ -328,6 +328,9 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     settle_file, settle_station = load_settle(args.settle_csv)
+    if args.no_settle_times:
+        print('NOTE: --no-settle-times: stations without a settle time get deploy = retrieve = 0 '
+              '(window starts at the first frame). Mark: settle_source column.')
     problems, chapter_rows, station_rows = [], [], []
     for spec in args.collection:
         if '=' not in spec:

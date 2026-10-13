@@ -363,7 +363,7 @@ class Model():
 @click.option("--species_classifier", "-sc", type=str, default=None, help="Path to species classifier")
 @click.option("--peek",  is_flag=True, default=False, show_default=True, help="Use peek mode: 5x faster but only finds interesting frames, without tracking/computing MaxN")
 @click.option("--resume",  is_flag=True, default=False, show_default=True, help="Resume BRUVS running SharkTrack")
-@click.option("--chapters",  is_flag=True, default=False, show_default=True, prompt="Are your videos split in chapters?", help="Aggreagate chapter information into a single video")
+@click.option("--chapters/--no-chapters", default=False, show_default=True, help="Videos are split into GoPro chapters: group outputs per station folder. Default off; pass --chapters explicitly")
 @click.option("--live",  is_flag=True, default=False, help="Show live tracking video for debugging purposes")
 @click.option("--auto_skip_deployment", is_flag=True, default=False, help="Automatically detect and skip deployment/retrieval periods (reduces false positives)")
 @click.option("--deployment_stability_threshold", type=float, default=0.15, help="Motion threshold for deployment detection (0-1, higher=more lenient). Default 0.15")

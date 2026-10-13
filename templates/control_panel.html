@@ -951,6 +951,30 @@
                             </div>
 
                             <div class="form-group">
+                                <label class="form-label">
+                                    <input type="checkbox" id="chapters" onchange="saveConfig()">
+                                    Videos are split into GoPro chapters
+                                </label>
+                                <p class="form-hint">Tick if each station folder holds chapter files (GH010001, GH020001, ...). Outputs are grouped per station folder. Leave unticked for one file per deployment</p>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">
+                                    <input type="checkbox" id="extractMetadata" onchange="saveConfig()">
+                                    Extract GoPro metadata
+                                </label>
+                                <p class="form-hint">Write duration, fps, resolution, water clarity and light level per video (metadata.csv)</p>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">
+                                    <input type="checkbox" id="filterSurface" onchange="saveConfig()">
+                                    Surface filter
+                                </label>
+                                <p class="form-hint">Down-weight detections likely to be surface objects (waves, sargassum, equipment)</p>
+                            </div>
+
+                            <div class="form-group">
                                 <label class="form-label">Stereo Prefix (optional)</label>
                                 <input type="text" class="form-input" id="stereoPrefix" placeholder="e.g., L_ or R_"
                                        onchange="saveConfig()">
@@ -1138,13 +1162,48 @@
                         MaxN is the standard metric for BRUV analysis - the maximum number of individuals of each species visible in a single frame of video.
                     </p>
 
-                    <div class="form-group">
-                        <label class="form-label">
-                            <input type="checkbox" id="aggregateChapters" onchange="saveConfig()">
-                            Aggregate across video chapters
-                        </label>
-                        <p class="form-hint">If your videos are split into chapters (e.g., GoPro chapters), combine them for MaxN calculation</p>
+                    <div class="info-box tip" style="margin-bottom: 20px;">
+                        <span class="info-box-icon">ℹ️</span>
+                        <div class="info-box-content">
+                            <p>Station-level MaxN counts distinct validated tracks (by video and track id) per frame, inside a window that starts when the camera has settled. It needs a per-chapter table and a per-station durations table. Step 1 builds both from your video folders with <code>utils/station_timeline.py</code>; step 2 runs <code>build_station_level_maxn.py</code>. Problems (chapter gaps, unreadable chapters) are shown in the log and the affected stations are left out.</p>
+                        </div>
                     </div>
+
+                    <h4>Step 1: Build station timeline</h4>
+                    <div class="form-group">
+                        <label class="form-label">Collections (one NAME=FOLDER per line; each folder holds one sub-folder per station)</label>
+                        <textarea class="form-input" id="maxn_collectionDirs" rows="3" placeholder="Summer_2022=/path/to/BRUV_Summer_2022" onchange="saveConfig()"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Settle times CSV (from validate_deployment.py)</label>
+                        <input type="text" class="form-input" id="maxn_settleCsv" placeholder="/path/to/stable_durations.csv" onchange="saveConfig()">
+                    </div>
+                    <div class="btn-group" style="margin-bottom: 20px;">
+                        <button class="btn btn-secondary" onclick="buildTimeline()">Build station timeline</button>
+                    </div>
+
+                    <h4>Step 2: Calculate station-level MaxN</h4>
+                    <div class="form-group">
+                        <label class="form-label">Per-chapter table (chapters.csv)</label>
+                        <input type="text" class="form-input" id="maxn_chaptersTable" placeholder="/path/to/station_timeline/chapters.csv" onchange="saveConfig()">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Station durations table (station_level_durations.csv)</label>
+                        <input type="text" class="form-input" id="maxn_durationsTable" placeholder="/path/to/station_timeline/station_level_durations.csv" onchange="saveConfig()">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Detection CSVs (one per line; output.csv from each run)</label>
+                        <textarea class="form-input" id="maxn_detections" rows="2" onchange="saveConfig()"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Validation CSVs (one per line, same order as the detection CSVs)</label>
+                        <textarea class="form-input" id="maxn_validations" rows="2" onchange="saveConfig()"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Analysis window (minutes from stable start)</label>
+                        <input type="number" class="form-input" id="maxn_windowMinutes" value="60" min="1" onchange="saveConfig()">
+                    </div>
+                    <div class="log-output" id="maxnLog" style="margin-bottom: 20px; display: none;"></div>
 
                     <div class="btn-group">
                         <button class="btn btn-success btn-lg" onclick="calculateMaxN()">
@@ -1608,7 +1667,13 @@
                 smartSuggestions: true
             },
             maxn: {
-                aggregateChapters: false
+                chaptersTable: '',
+                durationsTable: '',
+                detections: '',
+                validations: '',
+                windowMinutes: 60,
+                collectionDirs: '',
+                settleCsv: ''
             },
             metadata: {
                 userMetadataFile: ''
@@ -1626,7 +1691,13 @@
         config.detection.autoSkipDeployment = document.getElementById('autoSkipDeployment')?.checked ?? true;
         config.detection.resumeProcessing = document.getElementById('resumeProcessing')?.checked ?? false;
         config.detection.stereoPrefix = document.getElementById('stereoPrefix')?.value || '';
-        config.maxn.aggregateChapters = document.getElementById('aggregateChapters')?.checked ?? false;
+        config.detection.chapters = document.getElementById('chapters')?.checked ?? false;
+        config.detection.extractMetadata = document.getElementById('extractMetadata')?.checked ?? false;
+        config.detection.filterSurface = document.getElementById('filterSurface')?.checked ?? false;
+        for (const k of ['chaptersTable', 'durationsTable', 'detections', 'validations', 'collectionDirs', 'settleCsv']) {
+            config.maxn[k] = document.getElementById('maxn_' + k)?.value || '';
+        }
+        config.maxn.windowMinutes = parseFloat(document.getElementById('maxn_windowMinutes')?.value || 60);
 
         // Save metadata
         if (!config.metadata) config.metadata = {};
@@ -1706,7 +1777,15 @@
         document.getElementById('autoSkipDeployment').checked = config.detection.autoSkipDeployment !== false;
         document.getElementById('resumeProcessing').checked = config.detection.resumeProcessing === true;
         document.getElementById('stereoPrefix').value = config.detection.stereoPrefix || '';
-        document.getElementById('aggregateChapters').checked = config.maxn.aggregateChapters === true;
+        document.getElementById('chapters').checked = config.detection.chapters === true;
+        document.getElementById('extractMetadata').checked = config.detection.extractMetadata === true;
+        document.getElementById('filterSurface').checked = config.detection.filterSurface === true;
+        for (const k of ['chaptersTable', 'durationsTable', 'detections', 'validations', 'collectionDirs', 'settleCsv']) {
+            const el = document.getElementById('maxn_' + k);
+            if (el) el.value = (config.maxn && config.maxn[k]) || '';
+        }
+        const wm = document.getElementById('maxn_windowMinutes');
+        if (wm) wm.value = (config.maxn && config.maxn.windowMinutes) || 60;
 
         // Populate metadata
         document.getElementById('metadataFilePath').value = config.metadata?.userMetadataFile || '';
@@ -1844,7 +1923,10 @@
                     conf: config.detection.confidenceThreshold,
                     auto_skip_deployment: config.detection.autoSkipDeployment,
                     resume: config.detection.resumeProcessing,
-                    stereo_prefix: config.detection.stereoPrefix || null
+                    stereo_prefix: config.detection.stereoPrefix || null,
+                    chapters: config.detection.chapters === true,
+                    extract_metadata: config.detection.extractMetadata === true,
+                    filter_surface: config.detection.filterSurface === true
                 })
             });
 
@@ -1928,14 +2010,72 @@
         // In production, this would call the API
     }
 
+    function maxnLines(id) {
+        return (document.getElementById(id)?.value || '').split('\n').map(x => x.trim()).filter(x => x);
+    }
+
+    function maxnOutputDir() {
+        return (config.paths.outputResults || '.') + '/analysed';
+    }
+
+    async function runMaxnScript(url, payload) {
+        const log = document.getElementById('maxnLog');
+        log.style.display = 'block';
+        log.textContent = 'Starting...\n';
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (!data.success) {
+                log.textContent += `Error: ${data.error}\n`;
+                return;
+            }
+            const poll = async () => {
+                const r = await fetch(`/api/analyze/status/${data.process_id}`);
+                const d = await r.json();
+                if (d.output) { log.textContent += d.output; log.scrollTop = log.scrollHeight; }
+                if (d.status === 'running') {
+                    setTimeout(poll, 1000);
+                } else if (d.status !== 'completed') {
+                    log.textContent += `\nFAILED (${d.status}). Read the messages above: stations with problems are left out.\n`;
+                }
+            };
+            poll();
+        } catch (e) {
+            log.textContent += `Error: ${e.message}\n`;
+        }
+    }
+
+    async function buildTimeline() {
+        saveConfig();
+        const out = maxnOutputDir() + '/station_timeline';
+        document.getElementById('maxn_chaptersTable').value = out + '/chapters.csv';
+        document.getElementById('maxn_durationsTable').value = out + '/station_level_durations.csv';
+        saveConfig();
+        await runMaxnScript('/api/scripts/timeline', {
+            collections: maxnLines('maxn_collectionDirs'),
+            settle_csv: document.getElementById('maxn_settleCsv')?.value || '',
+            output_dir: out
+        });
+    }
+
     async function calculateMaxN() {
-        alert('Calculating MaxN...');
-        // In production, this would call the API
+        saveConfig();
+        await runMaxnScript('/api/scripts/maxn', {
+            chapters_csv: document.getElementById('maxn_chaptersTable')?.value || '',
+            durations_csv: document.getElementById('maxn_durationsTable')?.value || '',
+            detections: maxnLines('maxn_detections'),
+            validations: maxnLines('maxn_validations'),
+            window_minutes: parseFloat(document.getElementById('maxn_windowMinutes')?.value || 60),
+            output: maxnOutputDir() + '/station_level_maxn.csv'
+        });
     }
 
     function viewMaxNResults() {
-        const resultsPath = config.paths.outputResults + '/analysed/maxn.csv';
-        alert('MaxN results at: ' + resultsPath);
+        alert('MaxN results at: ' + maxnOutputDir() + '/station_level_maxn.csv');
     }
 
     async function exportCombinedMetadata() {
