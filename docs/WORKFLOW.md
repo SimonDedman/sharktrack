@@ -123,12 +123,13 @@ This document describes the end-to-end workflow from raw BRUV videos to validate
 │ PHASE 7: MAXN & METRICS CALCULATION (Automated)                            │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  [validation_results.csv]  ──►  [calculate_maxn.py]                        │
-│  [reanalysis_all_tracks.csv]          │                                    │
-│                                       ▼                                     │
+│  [video folders] ──► [utils/station_timeline.py] ──► chapters.csv +        │
+│  [stable_durations.csv]                              station_level_durations.csv│
+│                                                          │                  │
+│  [validation_results.csv] + [output.csv] ──►  [build_station_level_maxn.py] │
+│                                                          ▼                  │
 │                         ┌─────────────────────────────────┐                │
-│                         │  maxn_results_by_video.csv      │                │
-│                         │  maxn_results_by_station.csv    │                │
+│                         │  station_level_maxn.csv         │                │
 │                         └─────────────────────────────────┘                │
 │                                                                             │
 │  Outputs include:                                                          │
@@ -299,36 +300,40 @@ python utils/train_species_classifier.py \
 
 | Step | Action | Script/Tool | GUI? | Input | Output | Size | Scope |
 |------|--------|-------------|------|-------|--------|------|-------|
-| 7.1 | Calculate MaxN & metrics | `calculate_maxn.py` | No | validation CSV + tracks CSV | maxn_results*.csv | ~50KB | PROJECT |
+| 7.1 | Build station timeline | `utils/station_timeline.py` (GUI: MaxN page, step 1) | Yes | video folders + settle times CSV | `chapters.csv`, `station_level_durations.csv`, `timeline_problems.csv` | ~100KB | PROJECT |
+| 7.2 | Calculate station-level MaxN | `build_station_level_maxn.py` (GUI: MaxN page, step 2) | Yes | chapters.csv + durations + detection CSVs + validation CSVs | `station_level_maxn.csv` | ~50KB | PROJECT |
 
 **Commands:**
 ```bash
-python calculate_maxn.py
+python utils/station_timeline.py --collection NAME=/path/to/collection --settle-csv stable_durations.csv -o analysed/station_timeline
+python build_station_level_maxn.py --maxn-csv analysed/station_timeline/chapters.csv \
+    --durations-csv analysed/station_timeline/station_level_durations.csv \
+    --detections output.csv --validations validation_results_XX.csv -o analysed/station_level_maxn.csv
 ```
 
+Step 7.1 stops on chapter gaps, unreadable chapters (ffprobe cannot open them), several recordings in one station folder, and missing settle times. Those stations are left out of `station_level_durations.csv`, listed in `timeline_problems.csv`, and the command exits with status 2. `--allow-chapter-gaps` accepts gaps explicitly (the missing footage is then not on the clock).
+
 **Output files:**
-- `validation/maxn_results_by_video.csv` - Per-video metrics
-- `validation/maxn_results_by_station.csv` - Per-BRUV station metrics (aggregated)
+- `station_timeline/chapters.csv` - one row per chapter, with `chapter_offset_sec`
+- `station_timeline/station_level_durations.csv` - one row per station
+- `station_level_maxn.csv` - one row per station: `maxn_<taxon>`, `maxn_<species>`, window length, tracks in window
 
-**Metrics calculated:**
+**Metrics calculated (station-level MaxN CSV):**
 
-| Metric | Video-level | Station-level | Description |
-|--------|-------------|---------------|-------------|
-| `maxn_shark` | max in any frame | max across videos | Maximum sharks visible simultaneously |
-| `maxn_ray_skate` | max in any frame | max across videos | Maximum rays/skates visible simultaneously |
-| `maxn_elasmobranch` | shark + ray | shark + ray | Combined elasmobranch MaxN |
-| `maxn_teleost` | max in any frame | max across videos | Maximum teleosts visible simultaneously |
-| `maxn_{species}` | max in any frame | max across videos | MaxN per shark species |
-| `n_shark_tracks` | count | sum | Number of unique shark tracks |
-| `shark_total_time_sec` | sum of durations | sum | Total seconds sharks visible |
-| `shark_species_richness` | unique count | unique count | Number of shark species |
-| `shark_species_list` | comma-separated | comma-separated | List of species present |
+| Column | Description |
+|--------|-------------|
+| `maxn_shark`, `maxn_ray_skate`, `maxn_teleost`, `maxn_invertebrate`, `maxn_turtle`, `maxn_other` | Largest number of distinct true tracks of that taxon group in one frame, inside the window |
+| `maxn_{species}` | The same per species (underscores for spaces) |
+| `n_tracks_in_window` | Distinct true tracks inside the window |
+| `analysis_window_min` | Window actually used: `--window-minutes`, cut short if the recording ends first |
+| `deploy_sec`, `retrieve_sec`, `stable_duration_sec` | Settle times and stable length |
 
 **Algorithm notes:**
-- MaxN is calculated per-frame: count of distinct track_ids visible in each frame
-- Station-level MaxN = maximum of video-level MaxN values (standard BRUV protocol)
-- Station-level species richness = unique species across all videos (not sum)
-- Time in frame = sum of (last_frame - first_frame) / fps for each track
+- Only tracks marked `true_detection` in the validation CSVs count; species and taxon come from the same rows.
+- A track is `(video_id, track_id)`. Track ids restart per video and collide across separate runs, so joining on `track_id` alone mixes species between runs and inflates MaxN.
+- Station time = `chapter_offset_sec` + time in video. The window is `[deploy_sec, deploy_sec + window]` on that clock.
+- MaxN is the maximum over frames of the count of distinct tracks, per taxon group and per species.
+- `utils/compute_maxn.py` (upstream, thumbnail-rename labels, no window, no validation CSV) is legacy and is not part of this workflow.
 
 ---
 
@@ -353,9 +358,8 @@ python calculate_maxn.py
 | `validation_results*.csv` | Human validation labels | 500KB-1MB | `validation/` |
 | `smart_predictions.json` | Auto-suggestions | 500KB-1MB | `validation/` |
 | `suggestion_history.json` | Accuracy tracking | 50-100KB | `validation/` |
-| `maxn_results_by_video.csv` | MaxN & metrics per video | ~50KB | `validation/` |
-| `maxn_results_by_station.csv` | MaxN & metrics per BRUV station | ~10KB | `validation/` |
-| `calculate_maxn.py` | MaxN calculation script | ~10KB | `validation/` |
+| `station_level_maxn.csv` | Station-level MaxN | ~50KB | `analysed/` |
+| `chapters.csv`, `station_level_durations.csv` | Station timeline tables | ~100KB | `analysed/station_timeline/` |
 
 ---
 

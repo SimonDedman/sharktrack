@@ -35,7 +35,7 @@ First launch will take 5-10 minutes to install dependencies (~8 GB).
 2. **Thumbnail Generation** - Creates visual thumbnails for human review
 3. **Human Validation** - Interactive interface to verify detections and identify species
 4. **Smart Suggestions** - AI learns from your validations and suggests species for remaining tracks
-5. **MaxN Calculation** - Computes standard BRUV metrics from validated data
+5. **MaxN Calculation** - Station-level MaxN from validated tracks inside a settled-camera window (`utils/station_timeline.py` then `build_station_level_maxn.py`, also behind the Control Panel's MaxN page)
 
 ## System Requirements
 
@@ -107,9 +107,33 @@ your_output_folder/
 │   ├── validation.html         # Interactive validation interface
 │   ├── validation_results.csv  # Your validated data
 │   └── smart_predictions.json  # AI suggestions
-└── maxn/
-    └── maxn_results.csv        # Final MaxN calculations
+└── analysed/
+    ├── station_timeline/
+    │   ├── chapters.csv                 # Per chapter: offset on the station clock, duration, status
+    │   ├── station_level_durations.csv  # Per station: chapters, total, deploy and retrieve times
+    │   └── timeline_problems.csv        # Chapter gaps, unreadable chapters, missing settle times
+    └── station_level_maxn.csv           # Final station-level MaxN
 ```
+
+## Station-level MaxN
+
+MaxN is the largest number of distinct individuals in one frame. For BRUVs recorded in several GoPro chapters, detection times are placed on one station clock and counted inside an analysis window (default 60 minutes) that starts when the camera has settled.
+
+```bash
+# 1. chapter offsets, durations and settle times per station
+python utils/station_timeline.py --collection Summer_2022="/path/to/collection" \
+    --settle-csv stable_durations.csv -o analysed/station_timeline
+
+# 2. station-level MaxN from validated tracks
+python build_station_level_maxn.py --maxn-csv analysed/station_timeline/chapters.csv \
+    --durations-csv analysed/station_timeline/station_level_durations.csv \
+    --detections output.csv --validations validation_results_XX.csv \
+    --window-minutes 60 -o analysed/station_level_maxn.csv
+```
+
+Tracks are identified by `(video_id, track_id)`. Detections from separate runs reuse track ids, so never join on `track_id` alone. Step 1 stops on chapter gaps and unreadable chapters (for example a truncated file with no `moov` atom) and leaves those stations out with an explicit message; it never skips them silently.
+
+`utils/compute_maxn.py` is the older upstream MaxN that reads labels from renamed thumbnail files. It has no analysis window and does not use the validation CSV, so it is kept for thumbnail-rename labelling only and is not the supported route.
 
 ## Troubleshooting
 

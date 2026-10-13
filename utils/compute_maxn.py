@@ -1,3 +1,10 @@
+"""LEGACY upstream MaxN from thumbnail-rename labels.
+
+Labels come from thumbnail files renamed '{track_id}-{label}.jpg'; it counts boxes per frame (not
+distinct tracks), has no analysis window, and ignores the validation CSV. Kept for upstream
+compatibility and for projects that label by renaming thumbnails. For station-level MaxN from
+validated tracks use utils/station_timeline.py and build_station_level_maxn.py (see README).
+"""
 from argparse import ArgumentParser
 import pandas as pd
 import os
