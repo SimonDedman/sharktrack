@@ -1,10 +1,34 @@
 #!/usr/bin/env python3
-"""Build BRUV station-level MaxN CSV from detection and validation data."""
+"""Build BRUV station-level MaxN CSV from detection and validation data.
+
+Method (the one used for the reef-shark manuscript):
+  * A track is identified by (video_id, track_id), never by track_id alone.
+    When videos are analysed in separate runs, track ids restart per video and
+    collide across runs, so a bare track_id conflates species and taxa between
+    runs and inflates MaxN (study: shark 97 -> 76 after the fix).
+  * Only tracks marked true_detection in the validation CSVs are counted.
+  * MaxN = max over frames of the number of distinct tracks, per taxon group and
+    per species, inside an analysis window of --window-minutes starting at the
+    stable (post-settling) start of the station.
+  * Station time = chapter_offset_sec (from the per-chapter table) + time in
+    video. Build the per-chapter table and the durations table with
+    utils/station_timeline.py.
+  * Stable duration = total - deploy (lead-in) - retrieve (tail) unless the
+    durations CSV already has station_stable_sec.
+"""
 
 import argparse
 import pandas as pd
 import re
 import numpy as np
+
+
+def key(vid, tid):
+    """Track key: (video_id, track_id) as a single string; ids may be float-typed."""
+    try:
+        return f'{vid}|{int(float(tid))}'
+    except Exception:
+        return f'{vid}|{tid}'
 
 
 def parse_time(t):
@@ -62,6 +86,9 @@ def main():
     parser.add_argument('--detections', required=True, nargs='+', help='One or more detection CSV paths (raw frame-level)')
     parser.add_argument('--validations', required=True, nargs='+', help='One or more validation CSV paths')
     parser.add_argument('-o', '--output', default='station_level_maxn.csv', help='Output path (default: station_level_maxn.csv)')
+    parser.add_argument('--collections', nargs='+', default=None,
+                        help='Collection name for each --detections file that has no collection column '
+                             '(same order as --detections)')
     parser.add_argument('--window-minutes', type=float, default=60, help='Analysis window in minutes from stable start (default: 60)')
     args = parser.parse_args()
 
@@ -72,60 +99,86 @@ def main():
 
     validations = [pd.read_csv(v) for v in args.validations]
 
-    track_species = {}
-    track_taxon = {}
-    true_tracks_per_det = []
-    for v in validations:
+    # (video_id, track_id) -> species / taxon, from confirmed true detections
+    track_species, track_taxon = {}, {}
+    true_keys_per_det = []
+    for vpath, v in zip(args.validations, validations):
+        for col in ('video_id', 'track_id', 'true_detection'):
+            if col not in v.columns:
+                raise SystemExit(f'Validation file {vpath} lacks required column {col!r}')
         td = v[v['true_detection'] == True]
+        keys = set()
         for _, r in td.iterrows():
-            tid = r['track_id']
+            k = key(r['video_id'], r['track_id'])
             sp = r.get('species', np.nan)
             tg = r.get('taxon_group', np.nan)
-            track_species[tid] = sp if pd.notna(sp) else 'Unknown'
-            track_taxon[tid] = tg if pd.notna(tg) else 'unknown'
-        true_tracks_per_det.append(set(td['track_id']))
+            track_species[k] = sp if pd.notna(sp) else 'Unknown'
+            track_taxon[k] = tg if pd.notna(tg) else 'unknown'
+            keys.add(k)
+        true_keys_per_det.append(keys)
+
+    if len(args.validations) != len(args.detections):
+        print(f'WARNING: {len(args.detections)} detection files but {len(args.validations)} '
+              f'validation files; they are paired by position, unpaired detection files count nothing.')
 
     v2s, v2o = {}, {}
     for _, r in final.iterrows():
         v2s[(r['collection'], r['video_id'])] = r['station_number']
         v2o[(r['collection'], r['video_id'])] = float(r['chapter_offset_sec'])
 
+    collections_arg = args.collections or []
     all_dets = []
+    seen_videos = {}
     for i, det_path in enumerate(args.detections):
         det = pd.read_csv(det_path)
-        true_tracks = true_tracks_per_det[i] if i < len(true_tracks_per_det) else set()
+        true_keys = true_keys_per_det[i] if i < len(true_keys_per_det) else set()
 
         is_2025_format = 'video_name' in det.columns and 'video_id' not in det.columns
 
         if is_2025_format:
             det['video_id'] = det['video_name'].str.replace('.MP4', '', case=False)
-            if 'collection' not in det.columns:
+        if 'collection' not in det.columns:
+            if i < len(collections_arg):
+                det['collection'] = collections_arg[i]
+            else:
                 collections = final['collection'].unique()
                 det['collection'] = collections[0] if len(collections) == 1 else 'unknown'
+                if len(collections) != 1:
+                    print(f'WARNING: {det_path} has no collection column and --collections was not given; '
+                          f'using "unknown" (nothing will match)')
 
         valid_vids = set()
         for c in det['collection'].unique():
             valid_vids.update(final[final['collection'] == c]['video_id'])
         det = det[det['video_id'].isin(valid_vids)].copy()
 
+        for cv in set(zip(det['collection'], det['video_id'])):
+            if cv in seen_videos and seen_videos[cv] != i:
+                print(f'WARNING: video {cv[1]} ({cv[0]}) appears in detection files '
+                      f'{seen_videos[cv]} and {i}; its tracks are counted separately in each run')
+            seen_videos.setdefault(cv, i)
+
         if 'bruv_station' in det.columns:
             det['station_number'] = det['bruv_station'].str.extract(r'(\d+)').astype(float)
         else:
-            det['station_number'] = det.apply(
-                lambda r: v2s.get((r['collection'], r['video_id']), np.nan), axis=1)
+            det['station_number'] = [v2s.get((c, v), np.nan)
+                                     for c, v in zip(det['collection'], det['video_id'])]
 
-        det['co'] = det.apply(lambda r: v2o.get((r['collection'], r['video_id']), 0), axis=1)
+        det['co'] = [v2o.get((c, v), 0) for c, v in zip(det['collection'], det['video_id'])]
         det['ts'] = det['time'].apply(parse_time)
         det['bt'] = det['co'] + det['ts']
+        det['k'] = [key(v, t) for v, t in zip(det['video_id'], det['track_id'])]
 
-        d = det[det['track_id'].isin(true_tracks)].copy()
-        d['species'] = d['track_id'].map(track_species).fillna('Unknown')
-        d['taxon_group'] = d['track_id'].map(track_taxon).fillna('unknown')
+        d = det[det['k'].isin(true_keys)].copy()
+        d['species'] = d['k'].map(track_species).fillna('Unknown')
+        d['taxon_group'] = d['k'].map(track_taxon).fillna('unknown')
 
+        # btk: unique track id across detection files. Reanalysis-style files restart ids per
+        # video, so the key includes the video; collection is prefixed for non-2025 formats.
         if is_2025_format:
-            d['btk'] = d['track_id'].astype(str)
+            d['btk'] = d['k']
         else:
-            d['btk'] = d['collection'].astype(str) + '|' + d['track_id'].astype(str)
+            d['btk'] = d['collection'].astype(str) + '|' + d['k']
 
         all_dets.append(d[['collection', 'station_number', 'video_id', 'frame', 'bt', 'btk', 'species', 'taxon_group']])
 
@@ -137,8 +190,12 @@ def main():
         c = srow['collection']
         s = int(srow['station_number'])
         st = srow['station_deploy_sec']
-        dur = srow['station_stable_sec']
+        retrieve = srow['station_retrieve_sec']
         td = srow['total_bruv_duration_sec']
+        if 'station_stable_sec' in srow.index and pd.notna(srow['station_stable_sec']):
+            dur = srow['station_stable_sec']
+        else:
+            dur = td - st - retrieve  # stable = total - lead-in - tail
         sm = dur / 60
 
         window_start = st
@@ -173,7 +230,7 @@ def main():
             'total_bruv_duration_sec': td,
             'total_bruv_duration_min': td / 60,
             'deploy_sec': st,
-            'retrieve_sec': srow['station_retrieve_sec'],
+            'retrieve_sec': retrieve,
             'stable_duration_sec': dur,
             'stable_duration_min': sm,
             'analysis_window_min': analysis_window_min,
