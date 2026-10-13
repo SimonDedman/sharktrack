@@ -2,13 +2,23 @@ import unittest
 import os
 from utils.path_resolver import generate_output_path, default_output, compute_frames_output_path, sort_files
 import shutil
+import tempfile
 
 class TestGenerateCorrectOutput(unittest.TestCase):
     def test__manage_user_provided_output(self):
-        self.assertFalse(generate_output_path("outputs", None))
-        self.assertTrue(generate_output_path("outputs", None, annotation_folder="", resume=True))
-        self.assertTrue(generate_output_path("new_output_directory", None))
-        self.assertTrue(generate_output_path("new_output_directory/file.jpg", None))
+        # An existing output directory is reused (with or without --resume); a path that does not
+        # exist yet is returned unchanged. Uses a temp dir so the result does not depend on the cwd.
+        with tempfile.TemporaryDirectory() as tmp:
+            existing = os.path.join(tmp, "existing")
+            os.makedirs(existing)
+            self.assertEqual(generate_output_path(existing, None), os.path.join(existing, ""))
+            self.assertEqual(generate_output_path(existing, None, resume=True), os.path.join(existing, ""))
+            self.assertEqual(generate_output_path(existing, None, annotation_folder="internal_results"),
+                             os.path.join(existing, "internal_results"))
+            new = os.path.join(tmp, "new_output_directory")
+            self.assertEqual(generate_output_path(new, None), new)
+            self.assertEqual(generate_output_path(new, None, annotation_folder="internal_results"),
+                             os.path.join(new, "internal_results"))
         self.assertTrue(generate_output_path(None, "videos", "internal_results", resume=True))
 
     def test__generate_path_automatically(self):

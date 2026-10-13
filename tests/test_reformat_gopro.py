@@ -46,7 +46,7 @@ class TestReformatGoPro(unittest.TestCase):
         mockedMakedirs.assert_has_calls(makedirs_calls)
 
         system_calls = [
-            call("ffmpeg -i {} -y -map 0:v -c copy {}".format(
+            call('ffmpeg -i "{}" -y -map 0:v -c copy "{}"'.format(
                 os.path.join(videos_root, video_dir, "sample.mp4"),
                 os.path.join(output_root, video_dir, "sample.mp4")
                 )) for video_dir in video_directories

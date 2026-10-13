@@ -46,19 +46,26 @@ class TestImageProcessor(unittest.TestCase):
         # Check that the original part of the image is unchanged (white pixels)
         np.testing.assert_array_equal(annotated_image[:100, :], image)
     
-    @patch('cv2.VideoCapture') # we mock cv2.VideoCapture for the duration of the test
-    def test_extract_frame_at_time(self, mock_VideoCapture):
-        mock_capture = MagicMock()
-        mock_VideoCapture.return_value = mock_capture
+    @patch('utils.image_processor.subprocess.run')  # the grabber shells out to FFmpeg, not OpenCV
+    def test_extract_frame_at_time(self, mock_run):
+        test_frame = np.full((480, 640, 3), 200, dtype=np.uint8)
 
-        test_frame = np.ones((480, 640, 3), dtype=np.uint8) 
-        mock_capture.read.return_value = (True, test_frame)
+        def fake_ffmpeg(cmd, **kwargs):
+            cv2.imwrite(cmd[-1], test_frame)  # last argument is the output jpg
+            return MagicMock(returncode=0, stderr="")
+        mock_run.side_effect = fake_ffmpeg
 
-        video_path = "test_video.mp4"
-        time_ms = 1000
-        
-        grabbed_frame = extract_frame_at_time(video_path, time_ms)
+        grabbed_frame = extract_frame_at_time("test_video.mp4", 1000)
 
-        mock_capture.set.assert_called_once_with(cv2.CAP_PROP_POS_MSEC, time_ms)
+        cmd = mock_run.call_args[0][0]
+        self.assertEqual(cmd[0], 'ffmpeg')
+        self.assertEqual(cmd[cmd.index('-ss') + 1], '1.0')
+        self.assertEqual(cmd[cmd.index('-i') + 1], 'test_video.mp4')
         self.assertIsInstance(grabbed_frame, np.ndarray)
-        self.assertTrue(np.array_equal(grabbed_frame.shape, test_frame.shape))
+        self.assertEqual(grabbed_frame.shape, test_frame.shape)
+
+    @patch('utils.image_processor.subprocess.run')
+    def test_extract_frame_at_time_raises_when_ffmpeg_fails(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=1, stderr="boom")
+        with self.assertRaises(RuntimeError):
+            extract_frame_at_time("test_video.mp4", 1000)
