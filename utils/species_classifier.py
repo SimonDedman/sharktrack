@@ -1,8 +1,7 @@
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from torchvision import models
-from torchvision.transforms import v2
+from torchvision import models, transforms
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
@@ -40,22 +39,24 @@ class SpeciesClassifier:
         self.model.load_state_dict(torch.load(str(model_path), map_location=self.device))
         self.model.eval()
         
-        # Transformations to make the input valid to the model
+        # Transformations matching the training pipeline exactly:
+        # BGR->RGB, resize, to [0,1] float tensor, ImageNet normalise
         average_patch_size = (200, 400)
-        self.transform = v2.Compose([
-            v2.Resize(average_patch_size),
-            v2.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-            v2.ToImage(),
-            v2.ToDtype(torch.float32, scale=True)
+        self.transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Resize(average_patch_size),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
 
-    def __call__(self, row: pd.Series, image: np.array) -> str:
+    def __call__(self, row: pd.Series, image: np.array, allowed_classes=None) -> str:
         xmin = int(row["xmin"])
         xmax = int(row["xmax"])
         ymin = int(row["ymin"])
         ymax = int(row["ymax"])
 
         patch = image[ymin:ymax, xmin:xmax]
+        patch = cv2.cvtColor(patch, cv2.COLOR_BGR2RGB)
         patch = self.transform(patch)
 
         # Add batch dimension
@@ -63,8 +64,15 @@ class SpeciesClassifier:
 
         with torch.no_grad():
             outputs = self.model(patch)
+            # Mask out disallowed classes before softmax if constrained
+            if allowed_classes is not None:
+                mask = torch.full_like(outputs, float('-inf'))
+                for i, cls in enumerate(self.classes):
+                    if cls in allowed_classes:
+                        mask[0, i] = 0.0
+                outputs = outputs + mask
             outputs = F.softmax(outputs, dim=1)
-            
+
             confidences, preds = torch.max(outputs, 1)
 
         predicted_class = self.classes[preds.item()]
