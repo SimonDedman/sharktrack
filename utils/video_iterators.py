@@ -121,7 +121,7 @@ def cleanup_converted_video(converted_path, original_path, verbose=True):
                 print(f"      Warning: Could not cleanup converted file: {e}")
 
 
-def ensure_video_readable(video_path, verbose=True):
+def ensure_video_readable(video_path, verbose=True, status=None):
     """
     Ensure a video is readable by OpenCV, reformatting if necessary.
 
@@ -131,6 +131,10 @@ def ensure_video_readable(video_path, verbose=True):
     Args:
         video_path: Path to video file
         verbose: Print status messages
+
+        status: optional dict. Set status['fell_back_to_original'] = True when the video
+            failed the read test and could not be repaired (the ORIGINAL path is returned and
+            detection may stop early).
 
     Returns:
         str: Path to readable video (original or reformatted)
@@ -160,33 +164,58 @@ def ensure_video_readable(video_path, verbose=True):
                 print(f"      Reformatted successfully: {reformatted_path}")
             return reformatted_path
         else:
-            if verbose:
-                print(f"      Reformatting failed - video may be corrupt")
+            print(f"      WARNING: reformatted copy is still unreadable; processing the ORIGINAL file, "
+                  f"detection may stop early. The video may be corrupt or truncated: {os.path.basename(video_path)}")
+            if status is not None:
+                status['fell_back_to_original'] = True
             return video_path  # Return original, let downstream handle the error
 
     except Exception as e:
-        if verbose:
-            print(f"      Reformatting error: {e}")
+        print(f"      WARNING: reformatting error ({e}); processing the ORIGINAL file, "
+              f"detection may stop early: {os.path.basename(video_path)}")
+        if status is not None:
+            status['fell_back_to_original'] = True
         return video_path
 
 
-def stride_iterator(video_path, vid_stride):
+def stride_iterator(video_path, vid_stride, stats=None):
     """
-    Iterates with cv2 each vid_stride frame
+    Iterates with cv2 each vid_stride frame.
+
+    stats: optional dict filled while iterating, so the caller can tell a complete read from one
+    that OpenCV abandoned part-way: frames_expected (container frame count), frames_grabbed
+    (frames OpenCV actually decoded), ended_on_failed_read (a frame could not be decoded).
+    Iteration behaviour is unchanged by passing stats.
     """
     vidcap = cv2.VideoCapture(video_path)
+    if stats is not None:
+        stats.update(frames_expected=int(vidcap.get(cv2.CAP_PROP_FRAME_COUNT)), frames_grabbed=0,
+                     ended_on_failed_read=False)
     ret, frame = vidcap.read()
     n = 0
 
     while vidcap.isOpened():
         n += 1
-        vidcap.grab()
+        grabbed = vidcap.grab()
+        if stats is not None and grabbed:
+            stats['frames_grabbed'] = n + 1  # +1 for the frame consumed by the first read()
         if n % vid_stride == 0:
             ret, frame = vidcap.retrieve()
             if ret:
                 yield frame, vidcap.get(cv2.CAP_PROP_POS_MSEC), vidcap.get(cv2.CAP_PROP_POS_FRAMES)
             else:
+                if stats is not None:
+                    stats['ended_on_failed_read'] = True
                 break
+
+
+def read_completeness(stats, min_fraction=0.98):
+    """Summarise stride_iterator stats: (fraction_read, truncated: bool). NaN/False if unknown."""
+    expected = (stats or {}).get('frames_expected') or 0
+    if expected <= 0:
+        return float('nan'), False
+    fraction = min(1.0, stats.get('frames_grabbed', 0) / expected)
+    return fraction, fraction < min_fraction
 
 
 def keyframe_iterator(video_path):

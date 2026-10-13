@@ -7,7 +7,7 @@ sys.stdout.flush()
 from utils.sharktrack_annotations import save_analyst_output, save_peek_output, extract_sightings, extract_raw_detections, resume_previous_run, save_raw_detections
 from utils.path_resolver import generate_output_path, convert_to_abs_path, sort_files
 from utils.time_processor import ms_to_string
-from utils.video_iterators import stride_iterator, keyframe_iterator, ensure_video_readable, cleanup_converted_video
+from utils.video_iterators import stride_iterator, keyframe_iterator, ensure_video_readable, cleanup_converted_video, read_completeness
 from utils.species_classifier import SpeciesClassifier
 from utils.reformat_gopro import valid_video
 from utils.deployment_detector import DeploymentDetector
@@ -212,7 +212,8 @@ class Model():
 
     # Validate video is readable, reformat if necessary
     original_video_path = video_path
-    video_path = ensure_video_readable(video_path, verbose=True)
+    read_status = {}
+    video_path = ensure_video_readable(video_path, verbose=True, status=read_status)
 
     # Detect deployment/retrieval periods if enabled
     skip_start_frame = 0
@@ -235,7 +236,8 @@ class Model():
 
     vid_stride, tot_frames_to_process = self._get_frame_skip(video_path)
 
-    video_iterator = stride_iterator(video_path, vid_stride)
+    iterator_stats = {}
+    video_iterator = stride_iterator(video_path, vid_stride, stats=iterator_stats)
 
     sightings = []
     raw_detections = []  # Log ALL detections before tracking/filtering
@@ -273,7 +275,19 @@ class Model():
     if self.filter_surface and not sightings_df.empty:
       sightings_df = apply_surface_filtering_to_results(sightings_df, video_path)
 
-    self.save_results(original_video_path, sightings_df, **{"fps": self.fps, "input": self.input_path})
+    # Flag videos OpenCV stopped reading early: missing footage must not look like 'no animals'
+    fraction_read, truncated = read_completeness(iterator_stats)
+    if truncated:
+      print(f"  WARNING: only {fraction_read:.1%} of {os.path.basename(original_video_path)} was decoded "
+            f"({iterator_stats.get('frames_grabbed')}/{iterator_stats.get('frames_expected')} frames). "
+            f"Detections stop early; treat this video as incomplete (see 'truncated' in overview.csv).")
+    read_report = {"frames_read": iterator_stats.get("frames_grabbed"),
+                   "frames_expected": iterator_stats.get("frames_expected"),
+                   "read_fraction": round(fraction_read, 4) if fraction_read == fraction_read else None,
+                   "truncated": bool(truncated),
+                   "used_original_after_failed_rewrap": bool(read_status.get("fell_back_to_original"))}
+
+    self.save_results(original_video_path, sightings_df, **{"fps": self.fps, "input": self.input_path, "read_report": read_report})
 
     # Cleanup converted video to free disk space
     cleanup_converted_video(video_path, original_video_path, verbose=True)

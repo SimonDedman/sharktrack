@@ -267,6 +267,7 @@ def save_analyst_output(video_path, model_results, out_folder, next_track_index,
   print(f"Found {tracks_found} tracks!")
 
   overview_row = {"video_path": video_path, "tracks_found": tracks_found}
+  overview_row.update(kwargs.get("read_report") or {})
   concat_df(pd.DataFrame([overview_row]), os.path.join(out_folder, configs["overview_filename"]))
 
   return next_track_index
