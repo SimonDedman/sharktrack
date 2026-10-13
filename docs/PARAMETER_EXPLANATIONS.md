@@ -9,7 +9,7 @@ A motion detection threshold that determines how "stable" a video period needs t
 
 The deployment detector:
 
-1. **Samples frames** every 2 seconds throughout the video
+1. **Samples frames** throughout the video: every 15 seconds by default (`DeploymentDetector`, `validate_deployment.py`), every 2 seconds when called from `app.py --auto_skip_deployment`
 2. **Compares consecutive frames** to detect motion:
    - Measures pixel changes
    - Calculates intensity differences
@@ -98,9 +98,11 @@ The motion score combines:
 - **30%**: Average intensity change across frame
 - **10%**: Maximum intensity change (bright spots moving)
 
-**Smoothing**: Moving average over 5 samples to reduce noise
+**Smoothing**: Moving average over 3 samples to reduce noise (45 s at the default 15 s sampling)
 
-**Minimum duration**: Stable period must be ≥10 seconds to count
+**Minimum duration**: Stable period must be at least 60 seconds to count (`min_stable_duration`, default 60).
+
+**Retrieval**: scanned backwards over the last 50% of the samples. A block of at least 3 consecutive above-threshold samples (runs separated by one quiet sample are merged) counts as retrieval when its mean motion is above 0.25 or its maximum above 0.4; weaker blocks (0.1 to 0.2, typically animals) are ignored. With no such block the stable period runs to the end of the video.
 
 ### Recommendation
 

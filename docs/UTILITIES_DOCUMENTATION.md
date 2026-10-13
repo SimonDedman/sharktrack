@@ -14,48 +14,9 @@ source sharktrack-env/bin/activate
 **Dependencies**: Fully installed including pandas, torch, ultralytics, opencv
 **Model Files**: `models/sharktrack.pt` (6.2MB) operational
 
-### Parallel Analysis System (Production)
+### Not shipped in this repository
 
-#### `parallel_sharktrack_analysis.py` - Production Parallel Processing
-
-**Purpose**: High-performance parallel analysis with auto-balancing workers
-
-**Features**:
-- **Auto-detected workers**: Based on CPU cores and RAM (4GB per worker)
-- **Subprocess isolation**: Prevents memory conflicts between workers
-- **Progress monitoring**: Real-time status and ETA calculations
-- **Result consolidation**: Combines outputs from all workers
-- **Error recovery**: Individual failures don't stop batch processing
-
-**Command Line Interface**:
-```bash
-# Auto-detected workers (recommended)
-python3 parallel_sharktrack_analysis.py "/path/to/videos" "/path/to/output"
-
-# Custom worker count
-python3 parallel_sharktrack_analysis.py "/path/to/videos" "/path/to/output" --workers 6
-
-# Fast peek mode
-python3 parallel_sharktrack_analysis.py "/path/to/videos" "/path/to/output" --peek
-```
-
-**Performance**: 7 workers auto-detected (CPU: 12, RAM: 30.2GB), ~60s per video
-
-#### `simple_batch_processor_v2.py` - Simplified Batch Processing
-
-**Purpose**: User-friendly interface with 3 clear presets
-
-**Presets**:
-```bash
-# Convert videos in-place (replaces originals)
-python3 simple_batch_processor_v2.py /path/to/videos --convert-replace
-
-# Convert only (keeps originals separate)
-python3 simple_batch_processor_v2.py /path/to/videos --convert-only
-
-# Analysis only (on already converted videos)
-python3 simple_batch_processor_v2.py /path/to/videos --analyze-only
-```
+Earlier versions of this document described tools that live outside the repository (in the study's own analysis folders) or were removed: `parallel_sharktrack_analysis.py`, `simple_batch_processor_v2.py`, `utils/database_integration.py`, `utils/gpu_accelerated_converter.py`, `utils/progress_converter.py`, `utils/resumable_processor.py`, `utils/substrate_classifier.py`, `utils/worker_optimizer.py`. Do not look for them here. To combine several separate runs use `tools/collate_runs.py`.
 
 ### `app.py` - Single Video Analysis
 
@@ -182,7 +143,9 @@ output/
 
 ---
 
-### `utils/compute_maxn.py` - MaxN Metric Computation
+### `utils/compute_maxn.py` - Legacy thumbnail-rename MaxN
+
+**Status**: legacy upstream tool. No analysis window and no validation CSV; the supported route is `build_station_level_maxn.py`.
 
 **Purpose**: Post-processes cleaned annotations to compute MaxN (maximum number of individuals)
 
@@ -323,42 +286,18 @@ output/
 
 ---
 
-## Performance and Processing Optimisation
+## Station timeline and MaxN
 
-### Recent Additions (Enhanced Processing)
+### `utils/station_timeline.py` - Chapter offsets and durations
+- **Purpose**: Orders GoPro chapters per station, reads durations with ffprobe, applies settle times, writes `chapters.csv` and `station_level_durations.csv`
+- **Failure policy**: chapter gaps, unreadable chapters, several recordings in one folder, and missing settle times put the station in an explicit error state (left out, listed in `timeline_problems.csv`, exit status 2)
 
-#### `utils/progress_converter.py` - Intelligent FFmpeg Conversion
-- **Purpose**: GPU-accelerated video conversion with real-time monitoring
-- **Features**: Size-weighted progress calculation, stall detection, adaptive timeouts
-- **Integration**: Advanced batch processing with worker optimisation
-
-#### `utils/gpu_accelerated_converter.py` - Hardware Acceleration
-- **Purpose**: Leverages GPU resources for faster video processing
-- **Compatibility**: Automatic fallback to CPU when GPU unavailable
-
-#### `utils/worker_optimizer.py` - Parallel Processing
-- **Purpose**: Optimises worker allocation based on system resources
-- **Features**: CPU core detection, memory usage monitoring, load balancing
-
-#### `utils/resumable_processor.py` - Fault Tolerance
-- **Purpose**: Enables interrupted processing resumption
-- **Implementation**: State tracking, checkpoint creation, intelligent restart
-
----
-
-## Database and Integration Utilities
-
-### `utils/database_integration.py` - Data Persistence
-- **Purpose**: Database connectivity and data synchronisation
-- **Features**: PostgreSQL integration, batch inserts, relationship management
+### `build_station_level_maxn.py` - Station-level MaxN
+- **Purpose**: MaxN per station inside the analysis window, keyed on `(video_id, track_id)`; the supported MaxN route (see README)
 
 ### `utils/metadata_extractor.py` - Video Metadata
 - **Purpose**: Extracts comprehensive video file information
 - **Output**: Duration, resolution, codec, creation date, GPS coordinates
-
-### `utils/substrate_classifier.py` - Habitat Classification
-- **Purpose**: Automated seafloor habitat classification from video frames
-- **Methods**: Computer vision techniques for substrate identification
 
 ---
 
