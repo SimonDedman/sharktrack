@@ -85,6 +85,7 @@ _LEGACY_METADATA_FILE = None
 TRACKS_FILE = None
 OUTPUT_DIR = None
 VIDEO_DIRS = None
+FORCE_FFMPEG = False
 METADATA_FILE = None
 
 # ============================================================================
@@ -113,17 +114,31 @@ def parse_time_to_seconds(time_str):
 # THUMBNAIL GENERATION
 # ============================================================================
 
-def extract_thumbnail(video_path, frame_num, bbox, output_path, padding=50):
-    """Extract a thumbnail from video at given frame with bounding box."""
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        return False
+def extract_thumbnail(video_path, frame_num, bbox, output_path, padding=50, time_sec=None, force_ffmpeg=False):
+    """Extract a thumbnail from video at given frame with bounding box.
 
-    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
-    ret, frame = cap.read()
-    cap.release()
-
-    if not ret:
+    OpenCV cannot read GoPro files whose metadata streams break its demuxer (the files app.py
+    re-wraps before detection), so when OpenCV fails, or when force_ffmpeg is set, the frame is
+    taken with FFmpeg at time_sec instead. An OpenCV seek on such a file can also land on the
+    wrong frame without failing, hence force_ffmpeg for runs where every video needed the re-wrap.
+    """
+    frame = None
+    if not force_ffmpeg:
+        cap = cv2.VideoCapture(video_path)
+        if cap.isOpened():
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+            ret, frame = cap.read()
+            if not ret:
+                frame = None
+        cap.release()
+    if frame is None and time_sec is not None:
+        from utils.image_processor import extract_frame_at_time
+        try:
+            frame = extract_frame_at_time(video_path, int(time_sec * 1000))
+        except Exception as e:
+            print(f"    FFmpeg frame grab failed for {os.path.basename(video_path)} at {time_sec:.2f}s: {e}")
+            frame = None
+    if frame is None:
         return False
 
     h, w = frame.shape[:2]
@@ -180,6 +195,7 @@ def generate_thumbnails(tracks_df, output_dir, max_tracks=None):
     results = []
     success = 0
     failed = 0
+    failed_rows = []
 
     for i, (idx, row) in enumerate(unique_tracks.iterrows()):
         if i % 100 == 0:
@@ -219,11 +235,13 @@ def generate_thumbnails(tracks_df, output_dir, max_tracks=None):
 
         if not video_path:
             failed += 1
+            failed_rows.append(f"{row['bruv_station']} {row['video_id']} track {row['track_id']} (video not found)")
             continue
 
         # Extract thumbnail
         bbox = (row['xmin'], row['ymin'], row['xmax'], row['ymax'])
-        if extract_thumbnail(video_path, int(row['frame']), bbox, thumb_path):
+        if extract_thumbnail(video_path, int(row['frame']), bbox, thumb_path,
+                             time_sec=time_seconds, force_ffmpeg=FORCE_FFMPEG):
             success += 1
             results.append({
                 'thumbnail': thumb_filename,
@@ -243,8 +261,12 @@ def generate_thumbnails(tracks_df, output_dir, max_tracks=None):
             })
         else:
             failed += 1
+            failed_rows.append(f"{row['bruv_station']} {row['video_id']} track {row['track_id']} at {row['time']}")
 
     print(f"  Complete: {success} success, {failed} failed")
+    # a track without a thumbnail never reaches the page, so it can never be validated: name every one
+    for f in failed_rows:
+        print(f"    NO THUMBNAIL (not on the page): {f}")
     return pd.DataFrame(results)
 
 
@@ -1615,7 +1637,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
 # ============================================================================
 
 def main():
-    global TRACKS_FILE, OUTPUT_DIR, VIDEO_DIRS, METADATA_FILE
+    global TRACKS_FILE, OUTPUT_DIR, VIDEO_DIRS, METADATA_FILE, FORCE_FFMPEG
 
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
@@ -1629,8 +1651,11 @@ def main():
     parser.add_argument('--title', type=str, default='SharkTrack Validation',
                        help='Title of the validation page (default: SharkTrack Validation)')
     parser.add_argument('--max-tracks', type=int, help='Maximum number of tracks to process (for testing)')
+    parser.add_argument('--ffmpeg-frames', action='store_true',
+                       help='Grab every thumbnail frame with FFmpeg by time (for GoPro files OpenCV cannot seek reliably)')
 
     args = parser.parse_args()
+    FORCE_FFMPEG = args.ffmpeg_frames
 
     # Load configuration
     try:
