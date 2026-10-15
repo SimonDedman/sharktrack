@@ -131,7 +131,9 @@ python build_station_level_maxn.py --maxn-csv analysed/station_timeline/chapters
     --window-minutes 60 -o analysed/station_level_maxn.csv
 ```
 
-Tracks are identified by `(video_id, track_id)`. Detections from separate runs reuse track ids, so never join on `track_id` alone. Step 1 stops on chapter gaps and unreadable chapters (for example a truncated file with no `moov` atom) and leaves those stations out with an explicit message; it never skips them silently.
+Tracks are identified by `(video_id, track_id)`. Detections from separate runs reuse track ids, so never join on `track_id` alone.
+
+Step 2 refuses to write MaxN while anything inside an analysed window is incomplete, because an unreviewed track, a dropped deployment, and a half-read video all look like "no animals". It stops when a track in a window has no review (true or false), when a station in the durations table has no chapters, and, given the inputs, when a deployment in `--deployments` is neither analysed nor given an `excluded_reason`, or a video in `--overview` (SharkTrack's `overview.csv`) is truncated or missing (crashed). Each check has an `--allow-*` override, and every run writes `<output>.completeness.json` saying what was checked and what was not. Step 1 stops on chapter gaps and unreadable chapters (for example a truncated file with no `moov` atom) and leaves those stations out with an explicit message; it never skips them silently.
 
 `utils/compute_maxn.py` is the older upstream MaxN that reads labels from renamed thumbnail files. It has no analysis window and does not use the validation CSV, so it is kept for thumbnail-rename labelling only and is not the supported route.
 

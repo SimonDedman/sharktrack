@@ -73,19 +73,108 @@ def test_study_inputs_reproduce_published_maxn(tmp_path):
             b / 'detections_bruv2025_framelevel.csv', re_dir / 'reanalysis_all_tracks.csv',
             b / 'validation_results_bruv2025 (4).csv',
             re_dir / 'validation' / 'validation_results_TG.csv',
-            b / 'BRUV_station_level_MaxN.csv']
+            b / 'BRUV_station_level_MaxN.csv',
+            # 2026-10-14: the study file now includes Tristan's re-run of his 17 original chapters
+            b / 'TG_ORIGINALS_RERUN_20261013' / 'tracks_all.csv',
+            b / 'TG_ORIGINALS_RERUN_20261013' / 'validation' / 'validation_results_TG_notes_applied_2026-10-14.csv']
     missing = [str(p) for p in need if not p.exists()]
     if missing:
         pytest.skip('private study inputs not present: ' + missing[0])
     out = tmp_path / 'out.csv'
     run(['--maxn-csv', need[0], '--durations-csv', need[1],
-         '--detections', need[2], need[3], '--collections', 'BRUVs_March_Dec_2025', 'unused',
-         '--validations', need[4], need[5], '-o', out])
+         '--detections', need[2], need[3], need[7], '--collections', 'BRUVs_March_Dec_2025', 'unused', 'unused',
+         '--validations', need[4], need[5], need[8], '-o', out,
+         # the published file predates the completeness gate and was built with unreviewed tracks
+         '--allow-unreviewed', '--allow-unaccounted'])
     got = pd.read_csv(out)
     ref = pd.read_csv(need[6])
     mcols = [c for c in ref.columns if c.startswith('maxn_')]
-    assert [c for c in got.columns if c.startswith('maxn_')] == mcols
+    assert sorted(c for c in got.columns if c.startswith('maxn_')) == sorted(mcols)
     pd.testing.assert_frame_equal(got[['collection', 'station_number'] + mcols + ['n_tracks_in_window']]
                                   .reset_index(drop=True),
                                   ref[['collection', 'station_number'] + mcols + ['n_tracks_in_window']]
                                   .reset_index(drop=True))
+
+
+# ---------------- completeness gate ----------------
+def _gate_inputs(tmp_path, judged=(True, None), times=(0.0, 1.0)):
+    """Station 1 (V1) has tracks 1 and 2; track 2's review is `judged[1]` (None = never reviewed)."""
+    _final().to_csv(tmp_path / 'final.csv', index=False)
+    pd.DataFrame([dict(collection='C', station_number=s, station_deploy_sec=0, station_retrieve_sec=60,
+                       total_bruv_duration_sec=600, n_chapters=1) for s in (1, 2)]).to_csv(tmp_path / 'dur.csv', index=False)
+    pd.DataFrame(dict(collection='C', video_id='V1', track_id=[1, 2], frame=[1, 2], time=list(times),
+                      bruv_station='BRUV 001')).to_csv(tmp_path / 'd.csv', index=False)
+    v = pd.DataFrame(dict(video_id='V1', track_id=[1, 2], true_detection=list(judged),
+                          species=['Carcharhinus perezi', 'Carcharhinus perezi'], taxon_group='shark'))
+    v.to_csv(tmp_path / 'v.csv', index=False)
+    return ['--maxn-csv', tmp_path / 'final.csv', '--durations-csv', tmp_path / 'dur.csv',
+            '--detections', tmp_path / 'd.csv', '--validations', tmp_path / 'v.csv', '-o', tmp_path / 'out.csv']
+
+
+def run_rc(args):
+    return subprocess.run([sys.executable, str(SCRIPT), *map(str, args)], capture_output=True, text=True)
+
+
+def _summary(tmp_path):
+    import json
+    return json.load(open(tmp_path / 'out.csv.completeness.json'))
+
+
+def test_gate_stops_on_unreviewed_track_in_window(tmp_path):
+    r = run_rc(_gate_inputs(tmp_path))
+    assert r.returncode != 0 and 'unreviewed_in_window' in r.stderr
+    assert not (tmp_path / 'out.csv').exists()
+    assert _summary(tmp_path)['status'] == 'FAIL' and _summary(tmp_path)['unreviewed_tracks_in_window'] == 1
+
+
+def test_gate_allow_unreviewed_builds_and_counts(tmp_path):
+    run(_gate_inputs(tmp_path) + ['--allow-unreviewed'])
+    out = pd.read_csv(tmp_path / 'out.csv').set_index('station_number')
+    assert out.loc[1, 'n_unreviewed_in_window'] == 1 and out.loc[2, 'n_unreviewed_in_window'] == 0
+
+
+def test_gate_false_review_counts_as_reviewed(tmp_path):
+    run(_gate_inputs(tmp_path, judged=(True, False)))
+    assert _summary(tmp_path)['status'] == 'OK'
+
+
+def test_gate_ignores_unreviewed_outside_window(tmp_path):
+    run(_gate_inputs(tmp_path, times=(0.0, 590.0)) + ['--window-minutes', '1'])
+    assert _summary(tmp_path)['status'] == 'OK'
+
+
+def test_gate_deployments_must_be_analysed_or_excluded(tmp_path):
+    args = _gate_inputs(tmp_path, judged=(True, False))
+    pd.DataFrame(dict(station_number=[1, 2, 3], excluded_reason=['', '', ''])).to_csv(tmp_path / 'dep.csv', index=False)
+    r = run_rc(args + ['--deployments', tmp_path / 'dep.csv'])
+    assert r.returncode != 0 and _summary(tmp_path)['problems']['deployments_unaccounted'] == ['3']
+    pd.DataFrame(dict(station_number=[1, 2, 3], excluded_reason=['', '', 'bad angle'])).to_csv(tmp_path / 'dep.csv', index=False)
+    run(args + ['--deployments', tmp_path / 'dep.csv'])
+    assert _summary(tmp_path)['status'] == 'OK'
+
+
+def test_gate_durations_station_without_chapters_stops(tmp_path):
+    args = _gate_inputs(tmp_path, judged=(True, False))
+    d = pd.read_csv(tmp_path / 'dur.csv')
+    pd.concat([d, d.iloc[[0]].assign(station_number=9)]).to_csv(tmp_path / 'dur.csv', index=False)
+    r = run_rc(args)
+    assert r.returncode != 0 and _summary(tmp_path)['problems']['durations_station_without_chapters'] == ['C 9']
+
+
+def test_gate_truncated_video_stops(tmp_path):
+    args = _gate_inputs(tmp_path, judged=(True, False))
+    pd.DataFrame(dict(video_path=['/x/V1.MP4', '/x/V2.MP4'], tracks_found=[2, 0], truncated=[True, False],
+                      read_fraction=[0.41, 1.0])).to_csv(tmp_path / 'ov.csv', index=False)
+    r = run_rc(args + ['--overview', tmp_path / 'ov.csv'])
+    assert r.returncode != 0 and _summary(tmp_path)['problems']['truncated_videos'][0].startswith('V1')
+    run(args + ['--overview', tmp_path / 'ov.csv', '--allow-truncated'])
+    assert (tmp_path / 'out.csv').exists()
+
+
+def test_gate_video_missing_from_overview_stops(tmp_path):
+    """A crashed video writes no overview row; V2 (station 2) is analysed but absent."""
+    args = _gate_inputs(tmp_path, judged=(True, False))
+    pd.DataFrame(dict(video_path=['/x/V1.MP4'], tracks_found=[2], truncated=[False], read_fraction=[1.0])
+                 ).to_csv(tmp_path / 'ov.csv', index=False)
+    r = run_rc(args + ['--overview', tmp_path / 'ov.csv'])
+    assert r.returncode != 0 and _summary(tmp_path)['problems']['videos_missing_from_overview'] == ['V2']

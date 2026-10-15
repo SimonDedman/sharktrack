@@ -15,9 +15,24 @@ Method (the one used for the reef-shark manuscript):
     utils/station_timeline.py.
   * Stable duration = total - deploy (lead-in) - retrieve (tail) unless the
     durations CSV already has station_stable_sec.
+
+Completeness gate (added after the reef-shark study found 1,870 unreviewed tracks and a deployment with no
+tracks had silently been left out; an unreviewed track and a missing station both look like "no animals"):
+  * Every track inside an analysed window must have been reviewed (true_detection true or false). Unreviewed
+    tracks stop the build; --allow-unreviewed builds anyway and the per-station count is written to
+    n_unreviewed_in_window.
+  * Every station in the durations CSV must have rows in the per-chapter table (it used to be skipped).
+  * --deployments CSV (station_number, optional collection and excluded_reason): every deployment must be
+    analysed or carry an excluded_reason. Videos with no tracks write no detection rows, so without this list
+    a zero-track deployment cannot be told apart from one that was never run.
+  * --overview CSV(s) (SharkTrack overview.csv): a video of an analysed station that is flagged truncated, read
+    below 99%, or absent from every overview (it crashed or was never run) stops the build (--allow-truncated).
+  A summary <output>.completeness.json is written on every run, pass or fail.
 """
 
 import argparse
+import json
+import os
 import pandas as pd
 import re
 import numpy as np
@@ -97,6 +112,14 @@ def main():
                         help='Collection name for each --detections file that has no collection column '
                              '(same order as --detections)')
     parser.add_argument('--window-minutes', type=float, default=60, help='Analysis window in minutes from stable start (default: 60)')
+    parser.add_argument('--deployments', help='CSV listing every deployment (station_number; optional collection, '
+                                              'excluded_reason). Each must be analysed or carry an excluded_reason.')
+    parser.add_argument('--overview', nargs='+', default=[], help="SharkTrack overview.csv file(s); truncated videos stop the build")
+    parser.add_argument('--allow-unreviewed', action='store_true',
+                        help='Build even if tracks inside analysed windows have no review (counted per station)')
+    parser.add_argument('--allow-truncated', action='store_true', help='Build even if a video was not read in full or has no overview row')
+    parser.add_argument('--allow-unaccounted', action='store_true',
+                        help='Build even if a deployment or a durations station is missing from the analysis')
     args = parser.parse_args()
 
     window_sec = args.window_minutes * 60
@@ -108,12 +131,14 @@ def main():
 
     # (video_id, track_id) -> species / taxon, from confirmed true detections
     track_species, track_taxon = {}, {}
-    true_keys_per_det = []
+    true_keys_per_det, reviewed_keys_per_det = [], []
     for vpath, v in zip(args.validations, validations):
         for col in ('video_id', 'track_id', 'true_detection'):
             if col not in v.columns:
                 raise SystemExit(f'Validation file {vpath} lacks required column {col!r}')
-        td = v[v['true_detection'] == True]
+        judged = v['true_detection'].map(lambda x: str(x).strip().lower() in ('true', 'false', '1', '0', '1.0', '0.0'))
+        reviewed_keys_per_det.append({key(a, b) for a, b in zip(v.loc[judged, 'video_id'], v.loc[judged, 'track_id'])})
+        td = v[v['true_detection'].map(lambda x: str(x).strip().lower() in ('true', '1', '1.0'))]
         keys = set()
         for _, r in td.iterrows():
             k = key(r['video_id'], r['track_id'])
@@ -134,11 +159,12 @@ def main():
         v2o[(r['collection'], r['video_id'])] = float(r['chapter_offset_sec'])
 
     collections_arg = args.collections or []
-    all_dets = []
+    all_dets, unrev_dets = [], []
     seen_videos = {}
     for i, det_path in enumerate(args.detections):
         det = pd.read_csv(det_path)
         true_keys = true_keys_per_det[i] if i < len(true_keys_per_det) else set()
+        reviewed_keys = reviewed_keys_per_det[i] if i < len(reviewed_keys_per_det) else set()
 
         is_2025_format = 'video_name' in det.columns and 'video_id' not in det.columns
 
@@ -176,6 +202,9 @@ def main():
         det['bt'] = det['co'] + det['ts']
         det['k'] = [key(v, t) for v, t in zip(det['video_id'], det['track_id'])]
 
+        u = det[~det['k'].isin(reviewed_keys)]
+        unrev_dets.append(u.assign(src=os.path.basename(det_path))[['collection', 'station_number', 'video_id', 'bt', 'k', 'src']])
+
         d = det[det['k'].isin(true_keys)].copy()
         d['species'] = d['k'].map(track_species).fillna('Unknown')
         d['taxon_group'] = d['k'].map(track_taxon).fillna('unknown')
@@ -192,6 +221,9 @@ def main():
     alldet = pd.concat(all_dets, ignore_index=True)
     print(f'Total true detections: {len(alldet)} rows, {alldet["btk"].nunique()} tracks')
 
+    unrev = pd.concat(unrev_dets, ignore_index=True)
+    problems = {'unreviewed_in_window': {}, 'durations_station_without_chapters': [], 'deployments_unaccounted': [],
+                'truncated_videos': [], 'videos_missing_from_overview': []}
     rows = []
     for _, srow in sdf.iterrows():
         c = srow['collection']
@@ -214,7 +246,13 @@ def main():
 
         frows = final[(final['collection'] == c) & (final['station_number'] == s)]
         if len(frows) == 0:
+            problems['durations_station_without_chapters'].append(f'{c} {s}')
             continue
+        uw = unrev[(unrev['collection'] == c) & (unrev['station_number'] == s)
+                   & (unrev['bt'] >= window_start) & (unrev['bt'] <= window_end)]
+        n_unrev = uw[['src', 'k']].drop_duplicates().shape[0]
+        if n_unrev:
+            problems['unreviewed_in_window'][f'{c} {s}'] = n_unrev
         meta = frows.iloc[0]
 
         row = {
@@ -271,9 +309,72 @@ def main():
             row[col] = mx
 
         row['n_tracks_in_window'] = gw['btk'].nunique()
+        row['n_unreviewed_in_window'] = n_unrev
         rows.append(row)
 
     result = pd.DataFrame(rows)
+    analysed = {(r['collection'], int(r['station_number'])) for r in rows}
+
+    if args.deployments:
+        dep = pd.read_csv(args.deployments)
+        if 'station_number' not in dep.columns:
+            raise SystemExit(f'{args.deployments} lacks required column station_number')
+        for _, d in dep.iterrows():
+            s = int(float(d['station_number']))
+            why = d.get('excluded_reason', np.nan)
+            if pd.notna(why) and str(why).strip():
+                continue
+            if 'collection' in dep.columns and pd.notna(d['collection']):
+                ok = (d['collection'], s) in analysed
+            else:
+                ok = any(st == s for _, st in analysed)
+            if not ok:
+                problems['deployments_unaccounted'].append(str(d.get('collection', '')) + f' {s}'.strip())
+
+    analysed_videos = set(final[[ (c, int(s)) in analysed for c, s in zip(final['collection'], final['station_number'])]]['video_id'])
+    seen_in_overview = set()
+    for ov in args.overview:
+        o = pd.read_csv(ov)
+        o['video_id'] = o['video_path'].astype(str).map(lambda p: os.path.splitext(os.path.basename(p))[0])
+        trunc = o.get('truncated', pd.Series(False, index=o.index)).astype(str).str.lower().isin(['true', '1'])
+        frac = pd.to_numeric(o.get('read_fraction', pd.Series(np.nan, index=o.index)), errors='coerce')
+        bad = o[(trunc | (frac < 0.99)) & o['video_id'].isin(analysed_videos)]
+        problems['truncated_videos'] += [f'{v} ({ov})' for v in bad['video_id']]
+        seen_in_overview.update(o['video_id'])
+    if args.overview:
+        # SharkTrack writes an overview row only when a video finishes, so a crashed video has none
+        problems['videos_missing_from_overview'] = sorted(analysed_videos - seen_in_overview)
+
+    blocking = []
+    if problems['unreviewed_in_window'] and not args.allow_unreviewed:
+        blocking.append('unreviewed_in_window')
+    for k in ('truncated_videos', 'videos_missing_from_overview'):
+        if problems[k] and not args.allow_truncated:
+            blocking.append(k)
+    for k in ('durations_station_without_chapters', 'deployments_unaccounted'):
+        if problems[k] and not args.allow_unaccounted:
+            blocking.append(k)
+    summary = dict(stations_analysed=len(analysed), deployments_checked=bool(args.deployments),
+                   overviews_checked=len(args.overview),
+                   unreviewed_tracks_in_window=int(sum(problems['unreviewed_in_window'].values())),
+                   problems=problems, blocking=blocking,
+                   overrides=[f for f in ('allow_unreviewed', 'allow_truncated', 'allow_unaccounted') if getattr(args, f)],
+                   status='FAIL' if blocking else 'OK')
+    with open(args.output + '.completeness.json', 'w') as f:
+        json.dump(summary, f, indent=1)
+    print(f"\nCompleteness: {summary['status']}  ({len(analysed)} stations; "
+          f"{summary['unreviewed_tracks_in_window']} unreviewed tracks in windows; "
+          f"{len(problems['durations_station_without_chapters'])} durations stations without chapters; "
+          f"{len(problems['deployments_unaccounted'])} deployments unaccounted"
+          f"{'' if args.deployments else ' (NOT CHECKED: no --deployments)'}; "
+          f"{len(problems['truncated_videos'])} truncated and {len(problems['videos_missing_from_overview'])} unfinished videos"
+          f"{'' if args.overview else ' (NOT CHECKED: no --overview)'})")
+    for k in problems:
+        if problems[k]:
+            print(f'  {k}: {problems[k]}')
+    if blocking:
+        raise SystemExit(f'STOPPED, nothing written: {", ".join(blocking)}. Fix the inputs, or pass the matching '
+                         f'--allow-* flag to build anyway (see {args.output}.completeness.json).')
     sp_cols = [c for c in result.columns if c.startswith('maxn_')]
     result[sp_cols] = result[sp_cols].fillna(0).astype(int)
 
