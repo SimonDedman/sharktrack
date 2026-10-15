@@ -893,6 +893,24 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         sel.value = cur;
     }
 
+    // Species used for sorting: the reviewer's species, else group, else the prediction's species or label
+    function speciesForSort(key, state) {
+        const p = predictions[key] || {};
+        return state.species || state.taxon_group || p.species || p.label || '';
+    }
+
+    // "Species (A→Z) [n spp]": distinct species on this page, the reviewer's where given, else predicted
+    function refreshSpeciesSortLabel() {
+        const sp = new Set();
+        trackData.forEach(t => {
+            const k = keyOf(t), s = validationState[k] || {};
+            const v = s.species || (s.true_detection == null ? (predictions[k] || {}).species : '');
+            if (v && v.trim()) sp.add(v.trim());
+        });
+        const opt = document.querySelector('#sortBy option[value="species-asc"]');
+        if (opt) opt.textContent = `Species (A→Z) [${sp.size} spp]`;
+    }
+
     function getConfidenceLevel(conf) {
         if (conf >= 0.8) return 'high';
         if (conf >= 0.5) return 'medium';
@@ -1495,8 +1513,8 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                 const stateA = validationState[keyA] || {};
                 const stateB = validationState[keyB] || {};
                 // Use species if available, otherwise fall back to taxon_group (for false positives)
-                const speciesA = (stateA.species || stateA.taxon_group || '').toLowerCase();
-                const speciesB = (stateB.species || stateB.taxon_group || '').toLowerCase();
+                const speciesA = speciesForSort(keyA, stateA).toLowerCase();
+                const speciesB = speciesForSort(keyB, stateB).toLowerCase();
 
                 // Sort alphabetically by species/group (empty go to end)
                 if (!speciesA && speciesB) return 1;
@@ -1538,6 +1556,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
             }
         });
         refreshPredOptions();
+        refreshSpeciesSortLabel();
         // Live heading: cards still to do (same definition as the 'To do' view) of all tracks on this page
         let todo = 0;
         trackData.forEach(t => {
