@@ -509,7 +509,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
 </head>
 <body>
     <div class="header">
-        <h1>@@PAGE_TITLE@@</h1>
+        <h1><span id="pageTitle">@@PAGE_TITLE@@</span><span id="liveCount" style="font-weight:normal"></span></h1>
         <p>Generated: ''' + datetime.now().strftime('%Y-%m-%d %H:%M') + '''</p>
         <div class="stats">
             <div class="stat">
@@ -1538,6 +1538,13 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
             }
         });
         refreshPredOptions();
+        // Live heading: cards still to do (same definition as the 'To do' view) of all tracks on this page
+        let todo = 0;
+        trackData.forEach(t => {
+            const k = keyOf(t), s = validationState[k];
+            if (hasPredictions && predictions[k] ? isPending(k) : !(s && s.true_detection != null)) todo++;
+        });
+        document.getElementById('liveCount').textContent = `: ${todo.toLocaleString()} to do of ${total.toLocaleString()} tracks`;
         document.getElementById('acceptedCount').textContent = accepted;
         document.getElementById('correctedCount').textContent = byHand;
 
