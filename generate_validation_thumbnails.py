@@ -319,14 +319,53 @@ def load_existing_validations(output_dir):
                     'taxon_group': row.get('taxon_group', '').strip(),
                     'species': row.get('species', '').strip(),
                     'notes': row.get('notes', '').strip(),
+                    'label_source': (row.get('label_source') or '').strip(),
                 }
 
     print(f"  Loaded {len(validation_state)} existing validations")
     return validation_state
 
 
-def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation"):
-    """Generate interactive HTML validation page."""
+PREDICTION_COLUMNS = ['bruv_station', 'video_id', 'track_id', 'pred_label', 'pred_p',
+                      'pred_true_detection', 'pred_taxon_group', 'pred_species']
+
+
+def load_predictions(predictions_path, tracks_df):
+    """Read a predictions CSV (one row per track) into {page_key: prediction}.
+
+    Required columns: PREDICTION_COLUMNS; optional pred_note. A prediction is shown on its card and is only
+    written to the validation state when a person accepts it ('Accept' on the card, or 'Accept visible').
+    """
+    pr = pd.read_csv(predictions_path, dtype={'track_id': str})
+    missing = [c for c in PREDICTION_COLUMNS if c not in pr.columns]
+    if missing:
+        raise ValueError(f"{predictions_path}: missing columns {missing}")
+    page_keys = {f"{r.bruv_station}_{r.video_id}_{r.track_id}" for r in tracks_df.itertuples()}
+    out = {}
+    for r in pr.itertuples():
+        key = f"{r.bruv_station}_{r.video_id}_{r.track_id}"
+        if key in out:
+            raise ValueError(f"{predictions_path}: duplicate prediction for {key}")
+        det = str(r.pred_true_detection).strip().lower()
+        if det not in ('true', 'false'):
+            raise ValueError(f"{predictions_path}: pred_true_detection must be true/false, got {r.pred_true_detection!r} for {key}")
+        note = getattr(r, 'pred_note', '')
+        out[key] = {'label': r.pred_label, 'p': float(r.pred_p), 'det': det == 'true',
+                    'group': '' if pd.isna(r.pred_taxon_group) else r.pred_taxon_group,
+                    'species': '' if pd.isna(r.pred_species) else r.pred_species,
+                    'note': '' if pd.isna(note) else str(note)}
+    not_on_page = sorted(set(out) - page_keys)
+    if not_on_page:
+        raise ValueError(f"{len(not_on_page)} predictions match no track on the page, e.g. {not_on_page[:3]}")
+    print(f"  Predictions: {len(out)} of {len(page_keys)} page tracks ({len(page_keys) - len(out)} without one)")
+    return out
+
+
+def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation", predictions=None):
+    """Generate interactive HTML validation page.
+
+    predictions: optional {page_key: prediction} from load_predictions().
+    """
 
     # Load smart predictions if they exist
     smart_predictions_path = os.path.join(output_dir, "smart_predictions.json")
@@ -381,7 +420,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
 
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(var(--card-min, 400px), 1fr));
             gap: 20px;
             padding-bottom: 100px;
         }
@@ -391,10 +430,16 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         }
         .card.validated-true { border-left: 4px solid #27ae60; }
         .card.validated-false { border-left: 4px solid #e74c3c; }
+        .card.pred-pending { outline: 3px dashed #8e44ad; outline-offset: -3px; }
+        .pred { font-size: 13px; margin: 4px 0 6px; padding: 4px 6px; background: #f4ecf7; border-radius: 4px; }
+        .pred.done { background: #eafaf1; }
+        .pred .pred-note { color: #a04000; }
+        .pred button { margin-left: 6px; padding: 2px 8px; font-size: 12px; background: #8e44ad; }
         .card img {
             width: 100%; height: 300px; object-fit: contain; background: #000;
             cursor: pointer;
         }
+        .imgwrap { position: relative; overflow: hidden; height: 300px; background: #000; }
         .card-body { padding: 15px; }
         .card-title { font-weight: 600; margin-bottom: 10px; }
         .card-meta { font-size: 13px; color: #666; margin-bottom: 10px; }
@@ -482,9 +527,28 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                 <div class="stat-value" id="precisionValue">-</div>
                 <div class="stat-label">Precision</div>
             </div>
+            <div class="stat pred-only">
+                <div class="stat-value" id="acceptedCount">0</div>
+                <div class="stat-label">Predictions accepted</div>
+            </div>
+            <div class="stat pred-only">
+                <div class="stat-value" id="correctedCount">0</div>
+                <div class="stat-label">Set by hand</div>
+            </div>
         </div>
         <div class="progress-bar"><div class="progress-bar-fill" id="progressBar"></div></div>
     </div>
+
+    <details class="controls pred-only" open>
+        <summary><b>How to review with predictions</b></summary>
+        <ol>
+            <li>Choose one class in <b>Predicted as</b>, and set <b>Validation Status</b> to <i>Unvalidated</i>. Small cards scan faster.</li>
+            <li>Look at every card. Where the prediction is wrong, set Detection, Group and Species on that card (or tick several and use the batch bar). Edited cards are never overwritten.</li>
+            <li>Orange notes mark doubtful cards: low certainty, or the classifier disagreed with itself on other video frames. Open the video for those if the still is unclear.</li>
+            <li>When every wrong card in view is fixed, click <b>Accept predictions on visible cards</b>. Only cards you can see are accepted.</li>
+            <li>Repeat for the next class. Export CSV when done (and at breaks): it records, per track, whether the label was accepted or set by hand.</li>
+        </ol>
+    </details>
 
     <div class="controls">
         <div class="control-row">
@@ -519,6 +583,12 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                     <option value="false">False Positives</option>
                 </select>
             </div>
+            <div class="control-group pred-only">
+                <label>Predicted as</label>
+                <select id="filterPred" onchange="applyFilters()">
+                    <option value="">All predictions</option>
+                </select>
+            </div>
             <div class="control-group">
                 <label>Taxon Group</label>
                 <select id="filterTaxonGroup" onchange="updateFilterCascade('taxon')">
@@ -549,6 +619,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                 <label>Sort By</label>
                 <select id="sortBy" onchange="applyFilters()">
                     <option value="confidence-desc">Confidence (High→Low)</option>
+                    <option value="pred-asc" class="pred-only">Prediction certainty (Low→High)</option>
                     <option value="confidence-asc">Confidence (Low→High)</option>
                     <option value="species-asc">Species (A→Z)</option>
                     <option value="bruv-asc">BRUV Station</option>
@@ -557,7 +628,13 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
             </div>
         </div>
         <div class="control-row">
+            <select id="cardSize" title="Card size" onchange="document.getElementById('cardGrid').style.setProperty('--card-min', this.value); document.querySelectorAll('.imgwrap img').forEach(zoomImg)">
+                <option value="400px">Large cards</option>
+                <option value="260px">Small cards (fast scanning)</option>
+            </select>
+            <label style="font-size:13px"><input type="checkbox" id="zoomBox" checked onchange="document.querySelectorAll('.imgwrap img').forEach(zoomImg)"> Zoom to animal</label>
             <button onclick="selectAllVisible()">Select All Visible</button>
+            <button onclick="acceptVisiblePredictions()" class="pred-only" style="background:#6c3483;">Accept predictions on visible cards</button>
             <button onclick="exportValidation()" class="success">Export CSV</button>
             <button onclick="saveProgress()">Save Progress</button>
             <button onclick="loadProgress()">Load Progress</button>
@@ -739,12 +816,21 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
     // Existing validations from CSV (embedded at generation time)
     const embeddedValidations = ''' + existing_validations_json + ''';
 
+    // Classifier predictions (embedded if --predictions was given); shown on cards, never applied unaccepted
+    const predictions = @@PREDICTIONS@@;
+    const hasPredictions = Object.keys(predictions).length > 0;
+    const keyOf = t => `${t.bruv_station}_${t.video_id}_${t.track_id}`;
+    const pageKeys = new Set(trackData.map(keyOf));
+    // One storage key per page: file:// pages share one localStorage, so a shared key mixed answers between pages
+    const STORAGE_KEY = 'sharktrack_validation::' + document.title + '::' + trackData.length;
+
     // Validation state (will merge localStorage with embedded)
     let validationState = {};
 
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
         loadProgress();  // This will merge embedded + localStorage
+        if (!hasPredictions) document.querySelectorAll('.pred-only').forEach(e => e.style.display = 'none');
         populateFilters();
         updateFilterCascade('validation');  // Populate taxon/species dropdowns based on actual data
         renderCards(trackData);
@@ -767,6 +853,16 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
 
         // Populate species filter from validation state
         const species = [...new Set(Object.values(validationState).map(v => v.species).filter(s => s && s.trim()))].sort();
+        if (hasPredictions) {
+            const n = {};
+            trackData.forEach(t => { const p = predictions[keyOf(t)]; if (p) n[p.label] = (n[p.label] || 0) + 1; });
+            const predSelect = document.getElementById('filterPred');
+            Object.entries(n).sort((a, b) => b[1] - a[1]).forEach(([lab, c]) => {
+                predSelect.innerHTML += `<option value="${lab}">${lab} (${c})</option>`;
+            });
+            predSelect.innerHTML += `<option value="__none__">(no prediction)</option>`;
+        }
+
         const speciesSelect = document.getElementById('filterSpecies');
         speciesSelect.innerHTML += `<option value="__blank__">(Blank / Not specified)</option>`;
         species.forEach(s => {
@@ -783,13 +879,31 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
     function renderCards(data) {
         const grid = document.getElementById('cardGrid');
         grid.innerHTML = '';
+        data.forEach(track => grid.appendChild(buildCard(track)));
+        document.getElementById('filterStatus').textContent = `Showing ${data.length} of ${trackData.length} tracks`;
+    }
 
-        data.forEach(track => {
+    function predictionHtml(key, state) {
+        const p = predictions[key];
+        if (!p) return '';
+        const name = p.species || p.group || p.label;
+        const what = p.det ? name : 'not an animal: ' + name;
+        const pending = state.true_detection == null && state.label_source !== 'human';
+        const status = state.label_source === 'prediction_accepted' ? ' <b>accepted</b>'
+                     : state.label_source === 'human' ? ' (set by hand)' : '';
+        return `<div class="pred ${pending ? '' : 'done'}">Predicted: <b>${what}</b> ${Math.round(p.p * 100)}%${status}
+                ${p.note ? `<br><span class="pred-note">${p.note}</span>` : ''}
+                ${pending ? `<button onclick="acceptPrediction('${key}'); refreshCard('${key}')">Accept</button>` : ''}</div>`;
+    }
+
+    function buildCard(track) {
+        {
             const key = `${track.bruv_station}_${track.video_id}_${track.track_id}`;
             const state = validationState[key] || {};
             const confLevel = getConfidenceLevel(track.confidence);
 
             let cardClass = 'card';
+            if (predictions[key] && state.true_detection == null && state.label_source !== 'human') cardClass += ' pred-pending';
             if (state.true_detection === true) cardClass += ' validated-true';
             if (state.true_detection === false) cardClass += ' validated-false';
 
@@ -800,9 +914,9 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
             const timeSeconds = track.time_seconds || 0;
 
             card.innerHTML = `
-                <img src="thumbnails/${track.thumbnail}"
+                <div class="imgwrap"><img loading="lazy" onload="zoomImg(this)" data-box="${track.xmin},${track.ymin},${track.xmax},${track.ymax}" src="thumbnails/${track.thumbnail}"
                      onclick="showModal('thumbnails/${track.thumbnail}')"
-                     onerror="this.src='data:image/svg+xml,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'400\\' height=\\'300\\'><rect fill=\\'%23333\\'/><text x=\\'50%\\' y=\\'50%\\' fill=\\'%23999\\' text-anchor=\\'middle\\'>Image not found</text></svg>'">
+                     onerror="this.src='data:image/svg+xml,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'400\\' height=\\'300\\'><rect fill=\\'%23333\\'/><text x=\\'50%\\' y=\\'50%\\' fill=\\'%23999\\' text-anchor=\\'middle\\'>Image not found</text></svg>'"></div>
                 <div class="card-body">
                     <div class="card-title">
                         ${track.bruv_station} / ${track.video_id} / Track ${track.track_id}
@@ -818,6 +932,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                         <span>${track.collection}</span>
                         <span>${track.time || 'N/A'}</span>
                     </div>
+                    ${predictionHtml(key, state)}
                     <div class="validation-controls">
                         <select class="detection-select" onchange="updateValidation('${key}', 'true_detection', this.value); updateGroupOptions(this.parentElement)">
                             <option value="">-- Detection --</option>
@@ -860,14 +975,60 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                     </div>
                 </div>
             `;
-            grid.appendChild(card);
-        });
+            return card;
+        }
+    }
 
-        document.getElementById('filterStatus').textContent = `Showing ${data.length} of ${trackData.length} tracks`;
+    // Show the detection box (with margin) filling the card; the full frame is one click away (modal)
+    function zoomImg(img) {
+        const wrap = img.parentElement, W = img.naturalWidth, H = img.naturalHeight;
+        const b = (img.dataset.box || '').split(',').map(Number);
+        if (!W || b.length !== 4 || b.some(isNaN) || !document.getElementById('zoomBox').checked) {
+            img.style.cssText = ''; return;
+        }
+        const cw = wrap.clientWidth, ch = wrap.clientHeight;
+        const [x1, y1, x2, y2] = b, cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+        let cropW = Math.max((x2 - x1) * 1.8, (y2 - y1) * 1.8 * cw / ch, W * 0.12);
+        cropW = Math.min(cropW, W, H * cw / ch);
+        const cropH = cropW * ch / cw, s = cw / cropW;
+        const left = Math.min(Math.max(cx - cropW / 2, 0), W - cropW), top = Math.min(Math.max(cy - cropH / 2, 0), H - cropH);
+        img.style.cssText = `position:absolute; object-fit:fill; max-width:none; width:${W * s}px; height:${H * s}px; left:${-left * s}px; top:${-top * s}px;`;
+    }
+
+    function refreshCard(key) {
+        const old = document.querySelector(`.card[data-key="${key}"]`);
+        const t = trackData.find(t => keyOf(t) === key);
+        if (old && t) old.replaceWith(buildCard(t));
+    }
+
+    // Accepting writes the prediction as a reviewed label, tagged label_source = prediction_accepted.
+    // Cards a person has edited (label_source = human) or already judged are never overwritten.
+    function acceptPrediction(key) {
+        const p = predictions[key], s = validationState[key] || {};
+        if (!p || s.label_source === 'human' || s.true_detection != null) return false;
+        validationState[key] = {...s, true_detection: p.det, taxon_group: p.group, species: p.species,
+                                label_source: 'prediction_accepted', notes: s.notes || ''};
+        saveProgress(); updateStats();
+        return true;
+    }
+
+    function acceptVisiblePredictions() {
+        const keys = [...document.querySelectorAll('#cardGrid .card')].map(c => c.dataset.key)
+            .filter(k => predictions[k] && validationState[k]?.true_detection == null && validationState[k]?.label_source !== 'human');
+        if (!keys.length) { alert('No pending predictions among the visible cards.'); return; }
+        if (!confirm(`Accept the prediction on ${keys.length} visible cards?\n\nFix the wrong ones first: any card you have edited is skipped.`)) return;
+        let n = 0;
+        keys.forEach(k => { if (acceptPrediction(k)) n++; });
+        updateFilterCascade('validation');
+        applyFilters();
+        alert(`Accepted ${n} predictions.`);
     }
 
     function updateValidation(key, field, value) {
         if (!validationState[key]) validationState[key] = {};
+        validationState[key].label_source = 'human';
+        const pc = document.querySelector(`.card[data-key="${key}"]`);
+        if (pc) { pc.classList.remove('pred-pending'); const pd = pc.querySelector('.pred button'); if (pd) pd.remove(); }
 
         if (field === 'true_detection') {
             validationState[key][field] = value === 'true' ? true : value === 'false' ? false : null;
@@ -1006,6 +1167,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         selected.forEach(checkbox => {
             const key = checkbox.dataset.key;
             if (!validationState[key]) validationState[key] = {};
+            validationState[key].label_source = 'human';
 
             // Find the card element
             const card = checkbox.closest('.card');
@@ -1256,6 +1418,13 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                 if (validation === 'false' && state?.true_detection !== false) return false;
             }
 
+            // Filter by predicted class
+            const predF = document.getElementById('filterPred').value;
+            if (predF) {
+                const p = predictions[key];
+                if (predF === '__none__' ? !!p : (!p || p.label !== predF)) return false;
+            }
+
             // Filter by taxon group
             if (taxonGroup) {
                 if (taxonGroup === '__blank__') {
@@ -1280,6 +1449,10 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         // Sort
         const [field, dir] = sortBy.split('-');
         filtered.sort((a, b) => {
+            if (field === 'pred') {
+                const pa = predictions[keyOf(a)]?.p ?? 2, pb = predictions[keyOf(b)]?.p ?? 2;
+                return pa - pb;
+            }
             // Special handling for species sort: alphabetical by species, then descending confidence
             if (field === 'species') {
                 const keyA = `${a.bruv_station}_${a.video_id}_${a.track_id}`;
@@ -1317,13 +1490,19 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         const total = trackData.length;
         let validated = 0, trueCount = 0, falseCount = 0;
 
-        Object.values(validationState).forEach(s => {
-            if (s.true_detection != null) {
+        let accepted = 0, byHand = 0;
+        trackData.forEach(t => {
+            const s = validationState[keyOf(t)];
+            if (s && s.true_detection != null) {
                 validated++;
                 if (s.true_detection) trueCount++;
                 else falseCount++;
+                if (s.label_source === 'prediction_accepted') accepted++;
+                else if (s.label_source === 'human') byHand++;
             }
         });
+        document.getElementById('acceptedCount').textContent = accepted;
+        document.getElementById('correctedCount').textContent = byHand;
 
         document.getElementById('totalCount').textContent = total;
         document.getElementById('validatedCount').textContent = validated;
@@ -1384,8 +1563,8 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
     }
 
     function saveProgress() {
-        localStorage.setItem('sharktrack_validation', JSON.stringify(validationState));
-        console.log('Progress saved');
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(validationState)); }
+        catch (e) { console.error('Progress NOT saved to browser storage: export the CSV regularly', e); }
     }
 
     function loadProgress() {
@@ -1393,20 +1572,26 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         validationState = {...embeddedValidations};
         console.log('Loaded embedded validations:', Object.keys(embeddedValidations).length, 'entries');
 
-        // Merge localStorage (overwrites embedded if there are conflicts)
-        const saved = localStorage.getItem('sharktrack_validation');
+        // Merge localStorage (overwrites embedded if there are conflicts). Only this page's tracks are taken:
+        // the old shared key 'sharktrack_validation' holds every page's answers, so it is read for these keys only.
+        let saved = null, legacy = false;
+        try {
+            saved = localStorage.getItem(STORAGE_KEY);
+            if (!saved) { saved = localStorage.getItem('sharktrack_validation'); legacy = !!saved; }
+        } catch (e) { console.error('Browser storage unreadable', e); }
         if (saved) {
             const localState = JSON.parse(saved);
-            // Merge: localStorage takes precedence for any key it has
-            Object.assign(validationState, localState);
-            console.log('Merged localStorage:', Object.keys(localState).length, 'entries');
+            let n = 0;
+            Object.entries(localState).forEach(([k, v]) => { if (pageKeys.has(k)) { validationState[k] = v; n++; } });
+            console.log('Merged localStorage' + (legacy ? ' (old shared key)' : '') + ':', n, 'entries for this page');
         }
         console.log('Total validation state:', Object.keys(validationState).length, 'entries');
     }
 
     function exportValidation() {
         const rows = [['thumbnail', 'collection', 'bruv_station', 'video_id', 'track_id',
-                       'time', 'time_seconds', 'video_path', 'confidence', 'true_detection', 'taxon_group', 'species', 'notes']];
+                       'time', 'time_seconds', 'video_path', 'confidence', 'true_detection', 'taxon_group', 'species', 'notes',
+                       'label_source', 'predicted_label', 'predicted_p']];
 
         trackData.forEach(t => {
             const key = `${t.bruv_station}_${t.video_id}_${t.track_id}`;
@@ -1414,7 +1599,8 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
             rows.push([
                 t.thumbnail, t.collection, t.bruv_station, t.video_id, t.track_id,
                 t.time, t.time_seconds || '', t.video_path || '',
-                t.confidence, state.true_detection ?? '', state.taxon_group ?? '', state.species ?? '', state.notes ?? ''
+                t.confidence, state.true_detection ?? '', state.taxon_group ?? '', state.species ?? '', state.notes ?? '',
+                state.label_source ?? '', predictions[key]?.label ?? '', predictions[key]?.p ?? ''
             ]);
         });
 
@@ -1626,7 +1812,13 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
 
     html_path = os.path.join(output_dir, "validation.html")
     with open(html_path, 'w') as f:
-        f.write(html_template.replace('@@PAGE_TITLE@@', html.escape(title)))
+        if smart_predictions_json.strip() == '{}':
+            # No update_predictions.py output: drop its two buttons ("Apply All Suggestions" would mark tracks
+            # validated without anyone looking at them)
+            html_template = '\n'.join(l for l in html_template.split('\n')
+                                       if 'loadSmartPredictions()"' not in l and 'applySuggestions()"' not in l)
+        preds_json = json.dumps(predictions or {}).replace('</', '<\\/')
+        f.write(html_template.replace('@@PAGE_TITLE@@', html.escape(title)).replace('@@PREDICTIONS@@', preds_json))
 
     print(f"HTML validation page saved to: {html_path}")
     return html_path
@@ -1651,6 +1843,10 @@ def main():
     parser.add_argument('--title', type=str, default='SharkTrack Validation',
                        help='Title of the validation page (default: SharkTrack Validation)')
     parser.add_argument('--max-tracks', type=int, help='Maximum number of tracks to process (for testing)')
+    parser.add_argument('--predictions', type=str,
+                        help='CSV of classifier predictions, one row per track (columns: ' + ', '.join(PREDICTION_COLUMNS) +
+                             ', optional pred_note). Shown on the cards with a Predicted-as filter; a prediction becomes a '
+                             'label only when the reviewer accepts it.')
     parser.add_argument('--ffmpeg-frames', action='store_true',
                        help='Grab every thumbnail frame with FFmpeg by time (for GoPro files OpenCV cannot seek reliably)')
 
@@ -1719,7 +1915,8 @@ def main():
 
     # Generate HTML validation page
     print(f"\nGenerating HTML validation page...")
-    html_path = generate_html_validation(thumb_df, OUTPUT_DIR, title=args.title)
+    predictions = load_predictions(args.predictions, thumb_df) if args and args.predictions else None
+    html_path = generate_html_validation(thumb_df, OUTPUT_DIR, title=args.title, predictions=predictions)
 
     print("\n" + "=" * 70)
     print("COMPLETE!")
