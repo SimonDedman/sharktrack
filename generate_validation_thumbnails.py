@@ -547,7 +547,8 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
     <details class="controls pred-only" open>
         <summary><b>How to review with predictions</b></summary>
         <ol>
-            <li>Choose one class in <b>Predicted as</b>, and set <b>Validation Status</b> to <i>Unvalidated</i>. Small cards scan faster.</li>
+            <li>Choose one class in <b>Predicted as</b>. The page opens on <b>Validation Status</b> = <i>To do</i>: cards with no answer, or with a prediction still to accept (some were judged earlier without a species; Accept adds it). Small cards scan faster.</li>
+            <li>Save Progress, Accept, and batch tagging all re-file the view, so finished cards leave it.</li>
             <li>Look at every card. Where the prediction is wrong, set Detection, Group and Species on that card (or tick several and use the batch bar). Edited cards are never overwritten.</li>
             <li>Orange notes mark doubtful cards: low certainty, or the classifier disagreed with itself on other video frames. Open the video for those if the still is unclear.</li>
             <li>When every wrong card in view is fixed, click <b>Accept predictions on visible cards</b>. Only cards you can see are accepted.</li>
@@ -582,6 +583,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                 <label>Validation Status</label>
                 <select id="filterValidation" onchange="updateFilterCascade('validation')">
                     <option value="">All</option>
+                    <option value="todo" class="pred-only">To do (no answer, or a prediction to accept)</option>
                     <option value="unvalidated">Unvalidated</option>
                     <option value="suggested">Suggested (has prediction)</option>
                     <option value="true">True Detections</option>
@@ -837,8 +839,11 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         loadProgress();  // This will merge embedded + localStorage
         if (!hasPredictions) document.querySelectorAll('.pred-only').forEach(e => e.style.display = 'none');
         populateFilters();
+        // With predictions, open on the cards still to do; a page whose cards are all judged (e.g. a second-check pile) opens on All
+        if (hasPredictions && trackData.some(t => isPending(keyOf(t))))
+            document.getElementById('filterValidation').value = 'todo';
         updateFilterCascade('validation');  // Populate taxon/species dropdowns based on actual data
-        renderCards(trackData);
+        applyFilters();  // honours the default view chosen above
         updateStats();
     });
 
@@ -874,7 +879,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         const n = {};
         trackData.forEach(t => {
             const k = keyOf(t), p = predictions[k];
-            if (p && validationState[k]?.true_detection == null) n[p.label] = (n[p.label] || 0) + 1;
+            if (isPending(k)) n[p.label] = (n[p.label] || 0) + 1;
         });
         const sel = document.getElementById('filterPred'), cur = sel.value;
         const total = Object.values(n).reduce((a, b) => a + b, 0);
@@ -906,7 +911,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         if (!p) return '';
         const name = p.species || p.group || p.label;
         const what = p.det ? name : 'not an animal: ' + name;
-        const pending = state.true_detection == null && state.label_source !== 'human';
+        const pending = isPending(key);
         const status = state.label_source === 'prediction_accepted' ? ' <b>accepted</b>'
                      : state.label_source === 'human' ? ' (set by hand)' : '';
         const pct = p.p < 1 ? ` ${Math.round(p.p * 100)}%` : '';
@@ -922,7 +927,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
             const confLevel = getConfidenceLevel(track.confidence);
 
             let cardClass = 'card';
-            if (predictions[key] && state.true_detection == null && state.label_source !== 'human') cardClass += ' pred-pending';
+            if (isPending(key)) cardClass += ' pred-pending';
             if (state.true_detection === true) cardClass += ' validated-true';
             if (state.true_detection === false) cardClass += ' validated-false';
 
@@ -1020,11 +1025,20 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         if (old && t) old.replaceWith(buildCard(t));
     }
 
+    // A prediction is waiting for the reviewer when the card has no answer, or when it was judged earlier with the same
+    // detection and group but no species and the prediction names one (accepting then fills the species in).
+    // Cards a person has edited (label_source = human) or already accepted are never overwritten.
+    function isPending(key) {
+        const p = predictions[key], s = validationState[key] || {};
+        if (!p || s.label_source === 'human' || s.label_source === 'prediction_accepted') return false;
+        if (s.true_detection == null) return true;
+        return s.true_detection === p.det && (s.taxon_group || '') === (p.group || '') && !s.species && !!p.species;
+    }
+
     // Accepting writes the prediction as a reviewed label, tagged label_source = prediction_accepted.
-    // Cards a person has edited (label_source = human) or already judged are never overwritten.
     function acceptPrediction(key) {
         const p = predictions[key], s = validationState[key] || {};
-        if (!p || s.label_source === 'human' || s.true_detection != null) return false;
+        if (!isPending(key)) return false;
         validationState[key] = {...s, true_detection: p.det, taxon_group: p.group, species: p.species,
                                 label_source: 'prediction_accepted', notes: s.notes || ''};
         saveProgress(); updateStats();
@@ -1033,7 +1047,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
 
     function acceptVisiblePredictions() {
         const keys = [...document.querySelectorAll('#cardGrid .card')].map(c => c.dataset.key)
-            .filter(k => predictions[k] && validationState[k]?.true_detection == null && validationState[k]?.label_source !== 'human');
+            .filter(isPending);
         if (!keys.length) { alert('No pending predictions among the visible cards.'); return; }
         if (!confirm(`Accept the prediction on ${keys.length} visible cards?\n\nFix the wrong ones first: any card you have edited is skipped.`)) return;
         let n = 0;
@@ -1278,6 +1292,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                 const hasSuggestion = pred && pred.status === 'suggested' && !isValidated;
 
                 if (validation === 'unvalidated' && isValidated) return false;
+                if (validation === 'todo' && !(isPending(key) || (!predictions[key] && !isValidated))) return false;
                 if (validation === 'suggested' && !hasSuggestion) return false;
                 if (validation === 'true' && state?.true_detection !== true) return false;
                 if (validation === 'false' && state?.true_detection !== false) return false;
@@ -1432,6 +1447,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                 const hasSuggestion = pred && pred.status === 'suggested' && !isValidated;
 
                 if (validation === 'unvalidated' && isValidated) return false;
+                if (validation === 'todo' && !(isPending(key) || (!predictions[key] && !isValidated))) return false;
                 if (validation === 'suggested' && !hasSuggestion) return false;
                 if (validation === 'true' && state?.true_detection !== true) return false;
                 if (validation === 'false' && state?.true_detection !== false) return false;
