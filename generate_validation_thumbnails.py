@@ -640,7 +640,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
             <button onclick="selectAllVisible()">Select All Visible</button>
             <button onclick="acceptVisiblePredictions()" class="pred-only" style="background:#6c3483;">Accept predictions on visible cards</button>
             <button onclick="exportValidation()" class="success">Export CSV</button>
-            <button onclick="saveProgress()">Save Progress</button>
+            <button onclick="saveAndFile()" title="Save, then refresh the lists and move judged cards off views they no longer match">Save Progress</button>
             <button onclick="loadProgress()">Load Progress</button>
             <button onclick="loadSmartPredictions()" style="background:#9b59b6;">Load Smart Predictions</button>
             <button onclick="applySuggestions()" style="background:#8e44ad;">Apply All Suggestions</button>
@@ -1499,6 +1499,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         });
 
         renderCards(filtered);
+        refreshPredOptions();
         // Re-apply suggestion highlighting after render
         highlightSuggestions();
     }
@@ -1578,6 +1579,18 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         if (h > 0) return `${h}h ${m}m ${s}s`;
         if (m > 0) return `${m}m ${s}s`;
         return `${s}s`;
+    }
+
+    // Save button: save, then re-file every card (as batch tagging does), so judged cards leave views they no longer match
+    function saveAndFile() {
+        saveProgress();
+        const before = document.querySelectorAll('#cardGrid .card').length;
+        updateFilterCascade('validation');
+        applyFilters();
+        updateStats();
+        const after = document.querySelectorAll('#cardGrid .card').length;
+        document.getElementById('filterStatus').textContent =
+            `Saved. ${before - after} card(s) filed away; showing ${after} of ${trackData.length} tracks`;
     }
 
     function saveProgress() {
