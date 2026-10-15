@@ -294,7 +294,7 @@ output/
 
 ### `build_station_level_maxn.py` - Station-level MaxN
 - **Purpose**: MaxN per station inside the analysis window, keyed on `(video_id, track_id)`; the supported MaxN route (see README)
-- **Completeness gate**: stops on unreviewed in-window tracks, durations stations without chapters, unaccounted deployments (`--deployments`), and truncated or crashed videos (`--overview`); overrides `--allow-unreviewed`, `--allow-unaccounted`, `--allow-truncated`; writes `<output>.completeness.json`
+- **Completeness gate**: stops on unreviewed in-window tracks, durations stations without chapters, unaccounted deployments (`--deployments`), truncated, crashed, or empty-overview videos (`--overview`, matched on `(collection, video_id)` via an overview `collection` column or `--overview-collections`; otherwise on `video_id` alone with a warning for ids repeated across collections), and detections whose video has no row in the per-chapter table (reported per station and video; `--allow-unmatched-videos`); other overrides `--allow-unreviewed`, `--allow-unaccounted`, `--allow-truncated`; writes `<output>.completeness.json`
 
 ### `utils/metadata_extractor.py` - Video Metadata
 - **Purpose**: Extracts comprehensive video file information

@@ -178,3 +178,82 @@ def test_gate_video_missing_from_overview_stops(tmp_path):
                  ).to_csv(tmp_path / 'ov.csv', index=False)
     r = run_rc(args + ['--overview', tmp_path / 'ov.csv'])
     assert r.returncode != 0 and _summary(tmp_path)['problems']['videos_missing_from_overview'] == ['V2']
+
+
+# ---------------- holes found by the 2026-10-15 completeness audit ----------------
+def test_gate_detections_without_final_row_stop(tmp_path):
+    """Tracks of a video absent from the FINAL table were dropped before the gate; they must be reported and stop."""
+    args = _gate_inputs(tmp_path, judged=(True, False))
+    d = pd.read_csv(tmp_path / 'd.csv')
+    extra = pd.DataFrame(dict(collection='C', video_id='V9', track_id=[1, 2, 2], frame=[1, 1, 2], time=0.0,
+                              bruv_station='BRUV 001'))
+    pd.concat([d, extra]).to_csv(tmp_path / 'd.csv', index=False)
+    r = run_rc(args)
+    assert r.returncode != 0 and 'detections_without_final_row' in r.stderr
+    assert not (tmp_path / 'out.csv').exists()
+    rec = _summary(tmp_path)['problems']['detections_without_final_row']
+    assert len(rec) == 1
+    assert rec[0]['collection'] == 'C' and rec[0]['video_id'] == 'V9' and rec[0]['station'] == 1
+    assert rec[0]['n_tracks'] == 2 and rec[0]['n_unreviewed'] == 2
+    r = run_rc(args + ['--allow-unmatched-videos'])
+    assert r.returncode == 0 and (tmp_path / 'out.csv').exists()
+    s = _summary(tmp_path)
+    assert s['status'] == 'OK' and 'allow_unmatched_videos' in s['overrides']
+    assert s['problems']['detections_without_final_row'][0]['n_tracks'] == 2
+
+
+def test_gate_empty_overview_is_unread_not_a_crash(tmp_path):
+    args = _gate_inputs(tmp_path, judged=(True, False))
+    (tmp_path / 'ov.csv').write_text('')
+    r = run_rc(args + ['--overview', tmp_path / 'ov.csv'])
+    assert 'EmptyDataError' not in r.stderr and 'Traceback' not in r.stderr
+    assert r.returncode != 0
+    p = _summary(tmp_path)['problems']
+    assert any('empty overview' in t for t in p['truncated_videos'])
+    assert p['videos_missing_from_overview'] == ['V1', 'V2']
+    r = run_rc(args + ['--overview', tmp_path / 'ov.csv', '--allow-truncated'])
+    assert r.returncode == 0
+
+
+def _two_collection_inputs(tmp_path):
+    """V1 exists in collection C (station 1) and collection D (station 3)."""
+    f = pd.concat([_final('C'), _final('D').iloc[[0]].assign(station_number=3, bruv_station='BRUV 003')])
+    f.to_csv(tmp_path / 'final.csv', index=False)
+    pd.DataFrame([dict(collection=c, station_number=s, station_deploy_sec=0, station_retrieve_sec=60,
+                       total_bruv_duration_sec=600, n_chapters=1) for c, s in (('C', 1), ('C', 2), ('D', 3))]
+                 ).to_csv(tmp_path / 'dur.csv', index=False)
+    pd.DataFrame(dict(collection=['C', 'D'], video_id='V1', track_id=1, frame=1, time=0.0,
+                      bruv_station=['BRUV 001', 'BRUV 003'])).to_csv(tmp_path / 'd.csv', index=False)
+    pd.DataFrame(dict(video_id=['V1'], track_id=[1], true_detection=[False])).to_csv(tmp_path / 'v.csv', index=False)
+    return ['--maxn-csv', tmp_path / 'final.csv', '--durations-csv', tmp_path / 'dur.csv',
+            '--detections', tmp_path / 'd.csv', '--validations', tmp_path / 'v.csv', '-o', tmp_path / 'out.csv']
+
+
+def test_gate_overview_matched_on_collection_and_video(tmp_path):
+    args = _two_collection_inputs(tmp_path)
+    # V1 finished in collection C only; V2 (C) also finished; D's V1 never did
+    pd.DataFrame(dict(collection=['C', 'C'], video_path=['/x/V1.MP4', '/x/V2.MP4'], tracks_found=[1, 0],
+                      truncated=False, read_fraction=1.0)).to_csv(tmp_path / 'ov.csv', index=False)
+    r = run_rc(args + ['--overview', tmp_path / 'ov.csv'])
+    assert r.returncode != 0
+    assert _summary(tmp_path)['problems']['videos_missing_from_overview'] == ['D V1']
+
+
+def test_gate_overview_collection_from_option(tmp_path):
+    args = _two_collection_inputs(tmp_path)
+    pd.DataFrame(dict(video_path=['/x/V1.MP4', '/x/V2.MP4'], tracks_found=[1, 0], truncated=False,
+                      read_fraction=1.0)).to_csv(tmp_path / 'ov.csv', index=False)
+    r = run_rc(args + ['--overview', tmp_path / 'ov.csv', '--overview-collections', 'C'])
+    assert r.returncode != 0
+    assert _summary(tmp_path)['problems']['videos_missing_from_overview'] == ['D V1']
+
+
+def test_gate_overview_without_collection_warns_ambiguous(tmp_path):
+    args = _two_collection_inputs(tmp_path)
+    pd.DataFrame(dict(video_path=['/x/V1.MP4', '/x/V2.MP4'], tracks_found=[1, 0], truncated=False,
+                      read_fraction=1.0)).to_csv(tmp_path / 'ov.csv', index=False)
+    r = run_rc(args + ['--overview', tmp_path / 'ov.csv'])
+    # backwards compatible: matches on video_id alone, so it passes, but says the check is ambiguous
+    assert r.returncode == 0
+    assert 'ambiguous' in r.stdout.lower() and 'V1' in r.stdout
+    assert _summary(tmp_path)['problems']['overview_ambiguous_repeated_ids'] == ['V1']

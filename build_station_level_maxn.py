@@ -27,6 +27,13 @@ tracks had silently been left out; an unreviewed track and a missing station bot
     a zero-track deployment cannot be told apart from one that was never run.
   * --overview CSV(s) (SharkTrack overview.csv): a video of an analysed station that is flagged truncated, read
     below 99%, or absent from every overview (it crashed or was never run) stops the build (--allow-truncated).
+    An empty overview.csv counts as "video not read" and stops the build the same way. Videos are matched on
+    (collection, video_id), because 15 ids repeat across collections: the collection comes from a `collection`
+    column in the overview or from --overview-collections. An overview with neither is matched on video_id
+    alone, with a warning listing the repeated ids for which that check is ambiguous.
+  * Detections whose (collection, video_id) has no row in the per-chapter (FINAL) table cannot be placed in any
+    station window and used to be dropped silently before the gate ran. They are now counted per station and
+    video, written to the summary, and stop the build (--allow-unmatched-videos).
   A summary <output>.completeness.json is written on every run, pass or fail.
 """
 
@@ -115,11 +122,16 @@ def main():
     parser.add_argument('--deployments', help='CSV listing every deployment (station_number; optional collection, '
                                               'excluded_reason). Each must be analysed or carry an excluded_reason.')
     parser.add_argument('--overview', nargs='+', default=[], help="SharkTrack overview.csv file(s); truncated videos stop the build")
+    parser.add_argument('--overview-collections', nargs='+', default=None,
+                        help='Collection name for each --overview file that has no collection column '
+                             '(same order as --overview)')
     parser.add_argument('--allow-unreviewed', action='store_true',
                         help='Build even if tracks inside analysed windows have no review (counted per station)')
     parser.add_argument('--allow-truncated', action='store_true', help='Build even if a video was not read in full or has no overview row')
     parser.add_argument('--allow-unaccounted', action='store_true',
                         help='Build even if a deployment or a durations station is missing from the analysis')
+    parser.add_argument('--allow-unmatched-videos', action='store_true',
+                        help='Build even if detections belong to videos with no row in the per-chapter (FINAL) table')
     args = parser.parse_args()
 
     window_sec = args.window_minutes * 60
@@ -160,6 +172,8 @@ def main():
 
     collections_arg = args.collections or []
     all_dets, unrev_dets = [], []
+    unmatched = []  # detections whose (collection, video_id) has no FINAL row: reported by the gate
+    final_pairs = set(zip(final['collection'], final['video_id']))
     seen_videos = {}
     for i, det_path in enumerate(args.detections):
         det = pd.read_csv(det_path)
@@ -179,6 +193,21 @@ def main():
                 if len(collections) != 1:
                     print(f'WARNING: {det_path} has no collection column and --collections was not given; '
                           f'using "unknown" (nothing will match)')
+
+        pair = pd.Series([cv in final_pairs for cv in zip(det['collection'], det['video_id'])], index=det.index)
+        if (~pair).any():
+            um = det[~pair].copy()
+            um['k'] = [key(v, t) for v, t in zip(um['video_id'], um['track_id'])]
+            if 'bruv_station' in um.columns:
+                um['station'] = um['bruv_station'].astype(str).str.extract(r'(\d+)')[0].astype(float)
+            else:
+                um['station'] = np.nan
+            for (c, v), g in um.groupby(['collection', 'video_id'], dropna=False):
+                st = g['station'].dropna().unique()
+                unmatched.append(dict(collection=str(c), station=int(st[0]) if len(st) == 1 else None,
+                                      video_id=str(v), source=os.path.basename(det_path),
+                                      n_tracks=int(g['k'].nunique()),
+                                      n_unreviewed=int(g.loc[~g['k'].isin(reviewed_keys), 'k'].nunique())))
 
         valid_vids = set()
         for c in det['collection'].unique():
@@ -223,7 +252,8 @@ def main():
 
     unrev = pd.concat(unrev_dets, ignore_index=True)
     problems = {'unreviewed_in_window': {}, 'durations_station_without_chapters': [], 'deployments_unaccounted': [],
-                'truncated_videos': [], 'videos_missing_from_overview': []}
+                'truncated_videos': [], 'videos_missing_from_overview': [],
+                'detections_without_final_row': unmatched, 'overview_ambiguous_repeated_ids': []}
     rows = []
     for _, srow in sdf.iterrows():
         c = srow['collection']
@@ -331,19 +361,59 @@ def main():
             if not ok:
                 problems['deployments_unaccounted'].append(str(d.get('collection', '')) + f' {s}'.strip())
 
-    analysed_videos = set(final[[ (c, int(s)) in analysed for c, s in zip(final['collection'], final['station_number'])]]['video_id'])
-    seen_in_overview = set()
-    for ov in args.overview:
-        o = pd.read_csv(ov)
+    analysed_pairs = {(c, v) for c, s_, v in zip(final['collection'], final['station_number'], final['video_id'])
+                      if (c, int(s_)) in analysed}
+    ids_per_pair = {}
+    for c, v in analysed_pairs:
+        ids_per_pair.setdefault(v, set()).add(c)
+    repeated_ids = {v for v, cs in ids_per_pair.items() if len(cs) > 1}
+
+    def label(c, v):
+        return f'{c} {v}' if v in repeated_ids else v
+
+    if args.overview_collections and len(args.overview_collections) != len(args.overview):
+        raise SystemExit(f'--overview-collections gives {len(args.overview_collections)} names for '
+                         f'{len(args.overview)} --overview files')
+    seen_exact, seen_any = set(), set()  # (collection, video_id) pairs / video ids from overviews with no collection
+    ambiguous_used = False
+    for i, ov in enumerate(args.overview):
+        try:
+            o = pd.read_csv(ov)
+        except pd.errors.EmptyDataError:
+            o = pd.DataFrame(columns=['video_path'])
+        if len(o) == 0:
+            # an overview with no rows says no video was read; it must not pass as "nothing wrong"
+            problems['truncated_videos'].append(f'{ov} (empty overview: its videos were not read)')
+            continue
         o['video_id'] = o['video_path'].astype(str).map(lambda p: os.path.splitext(os.path.basename(p))[0])
+        if 'collection' in o.columns:
+            o['_c'] = o['collection']
+        elif args.overview_collections:
+            o['_c'] = args.overview_collections[i]
+        else:
+            o['_c'] = np.nan
+            ambiguous_used = True
         trunc = o.get('truncated', pd.Series(False, index=o.index)).astype(str).str.lower().isin(['true', '1'])
         frac = pd.to_numeric(o.get('read_fraction', pd.Series(np.nan, index=o.index)), errors='coerce')
-        bad = o[(trunc | (frac < 0.99)) & o['video_id'].isin(analysed_videos)]
-        problems['truncated_videos'] += [f'{v} ({ov})' for v in bad['video_id']]
-        seen_in_overview.update(o['video_id'])
+        notfull = trunc | (frac < 0.99)
+        for c, v, nf in zip(o['_c'], o['video_id'], notfull):
+            if pd.isna(c):
+                seen_any.add(v)
+                hit = [p for p in analysed_pairs if p[1] == v]
+            else:
+                seen_exact.add((c, v))
+                hit = [(c, v)] if (c, v) in analysed_pairs else []
+            if nf and hit:
+                problems['truncated_videos'].append(f'{v} ({ov})')
     if args.overview:
         # SharkTrack writes an overview row only when a video finishes, so a crashed video has none
-        problems['videos_missing_from_overview'] = sorted(analysed_videos - seen_in_overview)
+        problems['videos_missing_from_overview'] = sorted(
+            label(c, v) for c, v in analysed_pairs if (c, v) not in seen_exact and v not in seen_any)
+        if ambiguous_used and repeated_ids & seen_any:
+            problems['overview_ambiguous_repeated_ids'] = sorted(repeated_ids & seen_any)
+            print(f'WARNING: overview(s) without a collection column (and no --overview-collections) were matched on '
+                  f'video_id alone; the check is ambiguous for ids repeated across collections: '
+                  f'{problems["overview_ambiguous_repeated_ids"]}')
 
     blocking = []
     if problems['unreviewed_in_window'] and not args.allow_unreviewed:
@@ -351,14 +421,18 @@ def main():
     for k in ('truncated_videos', 'videos_missing_from_overview'):
         if problems[k] and not args.allow_truncated:
             blocking.append(k)
+    if problems['detections_without_final_row'] and not args.allow_unmatched_videos:
+        blocking.append('detections_without_final_row')
     for k in ('durations_station_without_chapters', 'deployments_unaccounted'):
         if problems[k] and not args.allow_unaccounted:
             blocking.append(k)
     summary = dict(stations_analysed=len(analysed), deployments_checked=bool(args.deployments),
                    overviews_checked=len(args.overview),
                    unreviewed_tracks_in_window=int(sum(problems['unreviewed_in_window'].values())),
+                   unmatched_video_tracks=int(sum(u['n_tracks'] for u in unmatched)),
                    problems=problems, blocking=blocking,
-                   overrides=[f for f in ('allow_unreviewed', 'allow_truncated', 'allow_unaccounted') if getattr(args, f)],
+                   overrides=[f for f in ('allow_unreviewed', 'allow_truncated', 'allow_unaccounted',
+                                                           'allow_unmatched_videos') if getattr(args, f)],
                    status='FAIL' if blocking else 'OK')
     with open(args.output + '.completeness.json', 'w') as f:
         json.dump(summary, f, indent=1)
@@ -368,7 +442,8 @@ def main():
           f"{len(problems['deployments_unaccounted'])} deployments unaccounted"
           f"{'' if args.deployments else ' (NOT CHECKED: no --deployments)'}; "
           f"{len(problems['truncated_videos'])} truncated and {len(problems['videos_missing_from_overview'])} unfinished videos"
-          f"{'' if args.overview else ' (NOT CHECKED: no --overview)'})")
+          f"{'' if args.overview else ' (NOT CHECKED: no --overview)'}; "
+          f"{summary['unmatched_video_tracks']} tracks in {len(unmatched)} videos with no FINAL row)")
     for k in problems:
         if problems[k]:
             print(f'  {k}: {problems[k]}')
