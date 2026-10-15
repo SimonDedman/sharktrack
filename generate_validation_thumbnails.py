@@ -274,7 +274,7 @@ def generate_thumbnails(tracks_df, output_dir, max_tracks=None):
 # HTML VALIDATION PAGE
 # ============================================================================
 
-def load_existing_validations(output_dir):
+def load_existing_validations(output_dir, csv_path=None):
     """Load existing validation results from CSV (e.g., validation_results_TG.csv)."""
     import glob
 
@@ -284,7 +284,9 @@ def load_existing_validations(output_dir):
     tg_path = os.path.join(output_dir, "validation_results_TG.csv")
     fixed_path = os.path.join(output_dir, "validation_results.csv")
 
-    if os.path.exists(tg_path):
+    if csv_path:
+        pass  # given explicitly (--existing-validations)
+    elif os.path.exists(tg_path):
         csv_path = tg_path
     elif os.path.exists(fixed_path):
         csv_path = fixed_path
@@ -361,10 +363,13 @@ def load_predictions(predictions_path, tracks_df):
     return out
 
 
-def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation", predictions=None):
+def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation", predictions=None,
+                             html_name="validation.html", existing_csv=None):
     """Generate interactive HTML validation page.
 
     predictions: optional {page_key: prediction} from load_predictions().
+    html_name: page file name in output_dir (several pages can share one thumbnails/ folder).
+    existing_csv: answers to show on the cards; default is the newest validation_results*.csv in output_dir.
     """
 
     # Load smart predictions if they exist
@@ -378,7 +383,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         print(f"  No smart predictions found (run update_predictions.py to generate)")
 
     # Load existing validations from CSV
-    existing_validations = load_existing_validations(output_dir)
+    existing_validations = load_existing_validations(output_dir, existing_csv)
     existing_validations_json = json.dumps(existing_validations)
 
     html_template = '''<!DOCTYPE html>
@@ -586,7 +591,6 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
             <div class="control-group pred-only">
                 <label>Predicted as</label>
                 <select id="filterPred" onchange="applyFilters()">
-                    <option value="">All predictions</option>
                 </select>
             </div>
             <div class="control-group">
@@ -853,21 +857,34 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
 
         // Populate species filter from validation state
         const species = [...new Set(Object.values(validationState).map(v => v.species).filter(s => s && s.trim()))].sort();
-        if (hasPredictions) {
-            const n = {};
-            trackData.forEach(t => { const p = predictions[keyOf(t)]; if (p) n[p.label] = (n[p.label] || 0) + 1; });
-            const predSelect = document.getElementById('filterPred');
-            Object.entries(n).sort((a, b) => b[1] - a[1]).forEach(([lab, c]) => {
-                predSelect.innerHTML += `<option value="${lab}">${lab} (${c})</option>`;
-            });
-            predSelect.innerHTML += `<option value="__none__">(no prediction)</option>`;
-        }
+        refreshPredOptions();
 
         const speciesSelect = document.getElementById('filterSpecies');
         speciesSelect.innerHTML += `<option value="__blank__">(Blank / Not specified)</option>`;
         species.forEach(s => {
             speciesSelect.innerHTML += `<option value="${s}">${s}</option>`;
         });
+    }
+
+    // "Predicted as" options count the cards still to judge; a class with none left drops out of the list
+    // (the selected one stays, marked done, so the grid doesn't jump to everything)
+    function refreshPredOptions() {
+        if (!hasPredictions) return;
+        const n = {};
+        trackData.forEach(t => {
+            const k = keyOf(t), p = predictions[k];
+            if (p && validationState[k]?.true_detection == null) n[p.label] = (n[p.label] || 0) + 1;
+        });
+        const sel = document.getElementById('filterPred'), cur = sel.value;
+        const total = Object.values(n).reduce((a, b) => a + b, 0);
+        let html = `<option value="">All predictions (${total} to judge)</option>`;
+        Object.entries(n).sort((a, b) => b[1] - a[1]).forEach(([lab, c]) => {
+            html += `<option value="${lab}">${lab} (${c})</option>`;
+        });
+        if (cur && cur !== '__none__' && !n[cur]) html += `<option value="${cur}">${cur} (done)</option>`;
+        html += `<option value="__none__">(no prediction)</option>`;
+        sel.innerHTML = html;
+        sel.value = cur;
     }
 
     function getConfidenceLevel(conf) {
@@ -1501,6 +1518,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                 else if (s.label_source === 'human') byHand++;
             }
         });
+        refreshPredOptions();
         document.getElementById('acceptedCount').textContent = accepted;
         document.getElementById('correctedCount').textContent = byHand;
 
@@ -1810,7 +1828,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
 </body>
 </html>'''
 
-    html_path = os.path.join(output_dir, "validation.html")
+    html_path = os.path.join(output_dir, html_name)
     with open(html_path, 'w') as f:
         if smart_predictions_json.strip() == '{}':
             # No update_predictions.py output: drop its two buttons ("Apply All Suggestions" would mark tracks
@@ -1843,6 +1861,11 @@ def main():
     parser.add_argument('--title', type=str, default='SharkTrack Validation',
                        help='Title of the validation page (default: SharkTrack Validation)')
     parser.add_argument('--max-tracks', type=int, help='Maximum number of tracks to process (for testing)')
+    parser.add_argument('--html-name', default='validation.html',
+                        help='Page file name (default validation.html). Another name lets a second page share the '
+                             'output folder and its thumbnails; its metadata goes to <name>_thumbnail_metadata.csv')
+    parser.add_argument('--existing-validations', help='CSV of answers to show on the cards (default: newest '
+                                                       'validation_results*.csv in the output folder)')
     parser.add_argument('--predictions', type=str,
                         help='CSV of classifier predictions, one row per track (columns: ' + ', '.join(PREDICTION_COLUMNS) +
                              ', optional pred_note). Shown on the cards with a Predicted-as filter; a prediction becomes a '
@@ -1909,14 +1932,16 @@ def main():
     thumb_df = generate_thumbnails(tracks_df, OUTPUT_DIR, max_tracks=max_tracks)
 
     # Save thumbnail metadata
-    thumb_csv = os.path.join(OUTPUT_DIR, "thumbnail_metadata.csv")
+    stem = os.path.splitext(args.html_name)[0] if args else 'validation'
+    thumb_csv = os.path.join(OUTPUT_DIR, "thumbnail_metadata.csv" if stem == 'validation' else f"{stem}_thumbnail_metadata.csv")
     thumb_df.to_csv(thumb_csv, index=False)
     print(f"Thumbnail metadata saved to: {thumb_csv}")
 
     # Generate HTML validation page
     print(f"\nGenerating HTML validation page...")
     predictions = load_predictions(args.predictions, thumb_df) if args and args.predictions else None
-    html_path = generate_html_validation(thumb_df, OUTPUT_DIR, title=args.title, predictions=predictions)
+    html_path = generate_html_validation(thumb_df, OUTPUT_DIR, title=args.title, predictions=predictions,
+                                         html_name=args.html_name, existing_csv=args.existing_validations)
 
     print("\n" + "=" * 70)
     print("COMPLETE!")
