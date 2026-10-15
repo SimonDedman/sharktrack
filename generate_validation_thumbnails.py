@@ -364,7 +364,7 @@ def load_predictions(predictions_path, tracks_df):
 
 
 def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation", predictions=None,
-                             html_name="validation.html", existing_csv=None):
+                             html_name="validation.html", existing_csv=None, prediction_caption="Predicted"):
     """Generate interactive HTML validation page.
 
     predictions: optional {page_key: prediction} from load_predictions().
@@ -823,6 +823,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
     // Classifier predictions (embedded if --predictions was given); shown on cards, never applied unaccepted
     const predictions = @@PREDICTIONS@@;
     const hasPredictions = Object.keys(predictions).length > 0;
+    const PRED_CAPTION = '@@PRED_CAPTION@@';
     const keyOf = t => `${t.bruv_station}_${t.video_id}_${t.track_id}`;
     const pageKeys = new Set(trackData.map(keyOf));
     // One storage key per page: file:// pages share one localStorage, so a shared key mixed answers between pages
@@ -908,7 +909,8 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         const pending = state.true_detection == null && state.label_source !== 'human';
         const status = state.label_source === 'prediction_accepted' ? ' <b>accepted</b>'
                      : state.label_source === 'human' ? ' (set by hand)' : '';
-        return `<div class="pred ${pending ? '' : 'done'}">Predicted: <b>${what}</b> ${Math.round(p.p * 100)}%${status}
+        const pct = p.p < 1 ? ` ${Math.round(p.p * 100)}%` : '';
+        return `<div class="pred ${pending ? '' : 'done'}">${PRED_CAPTION}: <b>${what}</b>${pct}${status}
                 ${p.note ? `<br><span class="pred-note">${p.note}</span>` : ''}
                 ${pending ? `<button onclick="acceptPrediction('${key}'); refreshCard('${key}')">Accept</button>` : ''}</div>`;
     }
@@ -1849,7 +1851,8 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
             html_template = '\n'.join(l for l in html_template.split('\n')
                                        if 'loadSmartPredictions()"' not in l and 'applySuggestions()"' not in l)
         preds_json = json.dumps(predictions or {}).replace('</', '<\\/')
-        f.write(html_template.replace('@@PAGE_TITLE@@', html.escape(title)).replace('@@PREDICTIONS@@', preds_json))
+        f.write(html_template.replace('@@PAGE_TITLE@@', html.escape(title)).replace('@@PREDICTIONS@@', preds_json)
+                .replace('@@PRED_CAPTION@@', html.escape(prediction_caption).replace("'", "&#39;")))
 
     print(f"HTML validation page saved to: {html_path}")
     return html_path
@@ -1877,6 +1880,8 @@ def main():
     parser.add_argument('--html-name', default='validation.html',
                         help='Page file name (default validation.html). Another name lets a second page share the '
                              'output folder and its thumbnails; its metadata goes to <name>_thumbnail_metadata.csv')
+    parser.add_argument('--prediction-caption', default='Predicted',
+                        help="Word shown before each card's prediction (e.g. 'On record' when the CSV holds current labels to confirm)")
     parser.add_argument('--existing-validations', help='CSV of answers to show on the cards (default: newest '
                                                        'validation_results*.csv in the output folder)')
     parser.add_argument('--predictions', type=str,
@@ -1954,7 +1959,8 @@ def main():
     print(f"\nGenerating HTML validation page...")
     predictions = load_predictions(args.predictions, thumb_df) if args and args.predictions else None
     html_path = generate_html_validation(thumb_df, OUTPUT_DIR, title=args.title, predictions=predictions,
-                                         html_name=args.html_name, existing_csv=args.existing_validations)
+                                         html_name=args.html_name, existing_csv=args.existing_validations,
+                                         prediction_caption=args.prediction_caption)
 
     print("\n" + "=" * 70)
     print("COMPLETE!")
