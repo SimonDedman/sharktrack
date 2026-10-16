@@ -400,24 +400,40 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         * { box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            margin: 0; padding: 20px; background: #f5f5f5;
+            margin: 0; padding: 0 8px; background: #f5f5f5;
         }
-        .header {
-            background: #2c3e50; color: white; padding: 20px; margin: -20px -20px 20px;
+        /* One top bar, always floating at the top; the button at its right end shrinks it to the title line */
+        .topbar {
+            position: sticky; top: 0; z-index: 200; background: #2c3e50; color: white;
+            margin: 0 -8px 8px; padding: 4px 8px 5px; box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-size: 13px;
         }
-        .header h1 { margin: 0 0 10px; }
-        .stats { display: flex; gap: 20px; flex-wrap: wrap; }
-        .stat { background: rgba(255,255,255,0.1); padding: 10px 20px; border-radius: 5px; }
-        .stat-value { font-size: 24px; font-weight: bold; }
-        .stat-label { font-size: 12px; opacity: 0.8; }
-
-        .controls {
-            background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .control-row { display: flex; gap: 15px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
-        .control-group { display: flex; flex-direction: column; gap: 5px; }
-        .control-group label { font-size: 12px; font-weight: 600; color: #666; }
+        .topline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .topline h1 { margin: 0; font-size: 17px; white-space: nowrap; }
+        .stats { display: flex; gap: 6px; flex-wrap: wrap; }
+        .stat { display: flex; align-items: baseline; background: rgba(255,255,255,0.12); padding: 1px 7px; border-radius: 3px; white-space: nowrap; }
+        .stat-value { font-weight: bold; }
+        .stat-label { opacity: 0.8; margin-left: 3px; }
+        .gen { opacity: 0.6; font-size: 11px; white-space: nowrap; }
+        .spacer { flex: 1; }
+        .howto { position: relative; }
+        .howto > summary { cursor: pointer; padding: 2px 8px; background: rgba(255,255,255,0.15); border-radius: 3px;
+                           list-style: none; white-space: nowrap; }
+        .howto > summary::-webkit-details-marker { display: none; }
+        .howto[open] > summary { background: #f39c12; }
+        .howto ol { position: absolute; right: 0; top: 24px; width: min(720px, 92vw); margin: 0; padding: 10px 14px 10px 30px;
+                    background: white; color: #222; border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+                    font-size: 13px; line-height: 1.4; }
+        .howto li { margin-bottom: 4px; }
+        #shrinkBtn { padding: 1px 8px; background: rgba(255,255,255,0.15); font-size: 13px; }
+        .topbar .progress-bar { margin-top: 3px; height: 3px; }
+        .controls { display: flex; gap: 4px 6px; flex-wrap: wrap; align-items: flex-end; margin-top: 4px; }
+        .control-group { display: flex; flex-direction: column; gap: 1px; }
+        .control-group label { font-size: 10px; font-weight: 600; color: #bdc3c7; text-transform: uppercase; letter-spacing: .3px; }
+        .controls select, .controls input { padding: 2px 4px; font-size: 12px; max-width: 210px; }
+        .controls button { padding: 3px 8px; font-size: 12px; }
+        .controls .tick { font-size: 12px; white-space: nowrap; align-self: center; }
+        #filterStatus { color: #ecf0f1; font-size: 12px; align-self: center; }
+        .topbar.shrunk .controls, .topbar.shrunk .stats, .topbar.shrunk .gen { display: none; }
         select, input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; }
         button {
             padding: 8px 16px; background: #3498db; color: white; border: none;
@@ -429,8 +445,8 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
 
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(var(--card-min, 400px), 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fill, minmax(var(--card-min, 320px), 1fr));
+            gap: 8px;
             padding-bottom: 100px;
         }
         .card {
@@ -449,7 +465,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
             cursor: pointer;
         }
         .imgwrap { position: relative; overflow: hidden; height: 300px; background: #000; }
-        .card-body { padding: 15px; }
+        .card-body { padding: 8px 10px; }
         .card-title { font-weight: 600; margin-bottom: 10px; }
         .card-meta { font-size: 13px; color: #666; margin-bottom: 10px; }
         .card-meta span { margin-right: 15px; }
@@ -504,7 +520,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         }
 
         .progress-bar {
-            height: 4px; background: #e0e0e0; border-radius: 2px; margin-top: 10px;
+            height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; margin-top: 10px;
         }
         .progress-bar-fill {
             height: 100%; background: #27ae60; border-radius: 2px; transition: width 0.3s;
@@ -512,9 +528,9 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1><span id="pageTitle">@@PAGE_TITLE@@</span><span id="liveCount" style="font-weight:normal"></span></h1>
-        <p>Generated: ''' + datetime.now().strftime('%Y-%m-%d %H:%M') + '''</p>
+    <div class="topbar" id="topbar">
+        <div class="topline">
+            <h1><span id="pageTitle">@@PAGE_TITLE@@</span><span id="liveCount" style="font-weight:normal"></span></h1>
         <div class="stats">
             <div class="stat">
                 <div class="stat-value" id="totalCount">0</div>
@@ -545,11 +561,10 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                 <div class="stat-label">Set by hand</div>
             </div>
         </div>
-        <div class="progress-bar"><div class="progress-bar-fill" id="progressBar"></div></div>
-    </div>
-
-    <details class="controls pred-only" open>
-        <summary><b>How to review with predictions</b></summary>
+            <span class="gen">built ''' + datetime.now().strftime('%Y-%m-%d %H:%M') + '''</span>
+            <span class="spacer"></span>
+            <details class="howto pred-only">
+                <summary>How to review &#9662;</summary>
         <ol>
             <li>Choose one class in <b>Predicted as</b>. The page opens on <b>Validation Status</b> = <i>To do</i>: cards with no answer, real animals with no species yet, or a prediction still to accept. A card stays here until it has a species; if it can't be named, choose <i>Unknown teleost</i> (or Unknown shark, ray, &hellip;). A name not in the list can be typed and added. Small cards scan faster.</li>
             <li>Save Progress, Accept, and batch tagging all re-file the view, so finished cards leave it.</li>
@@ -558,10 +573,10 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
             <li>When every wrong card in view is fixed, click <b>Accept predictions on visible cards</b>. Only cards you can see are accepted.</li>
             <li>Repeat for the next class. Export CSV when done (and at breaks): it records, per track, whether the label was accepted or set by hand.</li>
         </ol>
-    </details>
-
-    <div class="controls">
-        <div class="control-row">
+            </details>
+            <button id="shrinkBtn" onclick="toggleTopbar()" title="Shrink or expand this bar">&#9650;</button>
+        </div>
+        <div class="controls">
             <div class="control-group">
                 <label>Collection</label>
                 <select id="filterCollection">
@@ -636,13 +651,12 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                     <option value="collection-asc">Collection</option>
                 </select>
             </div>
-        </div>
-        <div class="control-row">
             <select id="cardSize" title="Card size" onchange="document.getElementById('cardGrid').style.setProperty('--card-min', this.value); document.querySelectorAll('.imgwrap img').forEach(zoomImg)">
-                <option value="400px">Large cards</option>
-                <option value="260px">Small cards (fast scanning)</option>
+                <option value="320px" selected>Medium cards</option>
+                <option value="420px">Large cards</option>
+                <option value="240px">Small cards (fast scanning)</option>
             </select>
-            <label style="font-size:13px"><input type="checkbox" id="zoomBox" checked onchange="document.querySelectorAll('.imgwrap img').forEach(zoomImg)"> Zoom to animal</label>
+            <label class="tick"><input type="checkbox" id="zoomBox" checked onchange="document.querySelectorAll('.imgwrap img').forEach(zoomImg)"> Zoom to animal</label>
             <button onclick="selectAllVisible()">Select All Visible</button>
             <button onclick="acceptVisiblePredictions()" class="pred-only" style="background:#6c3483;">Accept predictions on visible cards</button>
             <button onclick="exportValidation()" class="success">Export CSV</button>
@@ -650,9 +664,20 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
             <button onclick="loadProgress()">Load Progress</button>
             <button onclick="loadSmartPredictions()" style="background:#9b59b6;">Load Smart Predictions</button>
             <button onclick="applySuggestions()" style="background:#8e44ad;">Apply All Suggestions</button>
-            <span id="filterStatus" style="margin-left: 10px; color: #666;"></span>
+            <span id="filterStatus"></span>
         </div>
+        <div class="progress-bar"><div class="progress-bar-fill" id="progressBar"></div></div>
     </div>
+    <script>
+    function toggleTopbar(force) {
+        const bar = document.getElementById('topbar');
+        const shrunk = force === undefined ? !bar.classList.contains('shrunk') : force;
+        bar.classList.toggle('shrunk', shrunk);
+        document.getElementById('shrinkBtn').innerHTML = shrunk ? '&#9660;' : '&#9650;';
+        try { localStorage.setItem('sharktrack_topbar_shrunk', shrunk ? '1' : ''); } catch (e) {}
+    }
+    try { if (localStorage.getItem('sharktrack_topbar_shrunk')) toggleTopbar(true); } catch (e) {}
+    </script>
 
     <div class="grid" id="cardGrid"></div>
 
@@ -948,7 +973,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
     function predictionHtml(key, state) {
         const p = predictions[key];
         if (!p) return '';
-        const name = p.species || p.group || p.label;
+        const name = p.species || (p.det === false ? p.group || p.label : p.label);  // the label reads better than a bare group code
         const what = p.det === false ? 'not an animal: ' + name : name;
         const pending = isPending(key);
         const status = state.label_source === 'prediction_accepted' ? ' <b>accepted</b>'
