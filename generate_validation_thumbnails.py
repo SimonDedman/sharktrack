@@ -364,12 +364,14 @@ def load_predictions(predictions_path, tracks_df):
 
 
 def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation", predictions=None,
-                             html_name="validation.html", existing_csv=None, prediction_caption="Predicted"):
+                             html_name="validation.html", existing_csv=None, prediction_caption="Predicted",
+                             species_list=None):
     """Generate interactive HTML validation page.
 
     predictions: optional {page_key: prediction} from load_predictions().
     html_name: page file name in output_dir (several pages can share one thumbnails/ folder).
     existing_csv: answers to show on the cards; default is the newest validation_results*.csv in output_dir.
+    species_list: optional CSV (columns species, taxon_group) of every species labelled so far, added to the dropdowns.
     """
 
     # Load smart predictions if they exist
@@ -547,7 +549,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
     <details class="controls pred-only" open>
         <summary><b>How to review with predictions</b></summary>
         <ol>
-            <li>Choose one class in <b>Predicted as</b>. The page opens on <b>Validation Status</b> = <i>To do</i>: cards with no answer, or with a prediction still to accept (some were judged earlier without a species; Accept adds it). Small cards scan faster.</li>
+            <li>Choose one class in <b>Predicted as</b>. The page opens on <b>Validation Status</b> = <i>To do</i>: cards with no answer, real animals with no species yet, or a prediction still to accept. A card stays here until it has a species; if it can't be named, choose <i>Unknown teleost</i> (or Unknown shark, ray, &hellip;). A name not in the list can be typed and added. Small cards scan faster.</li>
             <li>Save Progress, Accept, and batch tagging all re-file the view, so finished cards leave it.</li>
             <li>Look at every card. Where the prediction is wrong, set Detection, Group and Species on that card (or tick several and use the batch bar). Edited cards are never overwritten.</li>
             <li>Orange notes mark doubtful cards: low certainty, or the classifier disagreed with itself on other video frames. Open the video for those if the still is unclear.</li>
@@ -583,7 +585,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                 <label>Validation Status</label>
                 <select id="filterValidation" onchange="updateFilterCascade('validation')">
                     <option value="">All</option>
-                    <option value="todo" class="pred-only">To do (no answer, or a prediction to accept)</option>
+                    <option value="todo" class="pred-only">To do (no answer, no species yet, or a prediction to accept)</option>
                     <option value="unvalidated">Unvalidated</option>
                     <option value="suggested">Suggested (has prediction)</option>
                     <option value="true">True Detections</option>
@@ -725,7 +727,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         <option value="Unknown shark">Unknown shark species</option>
     </datalist>
 
-    <datalist id="speciesList_ray">
+    <datalist id="speciesList_ray_skate">
         <option value="Hypanus americanus">Southern stingray</option>
         <option value="Aetobatus narinari">Spotted eagle ray</option>
         <option value="Rhinoptera bonasus">Cownose ray</option>
@@ -826,6 +828,22 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
     const predictions = @@PREDICTIONS@@;
     const hasPredictions = Object.keys(predictions).length > 0;
     const PRED_CAPTION = '@@PRED_CAPTION@@';
+    // Species labelled anywhere so far ({species, group}, from --species-list); added to the dropdowns on load
+    const EXTRA_SPECIES = @@EXTRA_SPECIES@@;
+    function addSpeciesOption(species, group) {
+        species = (species || '').trim();
+        if (!species) return;
+        ['speciesList_all', 'speciesList_' + (group || 'other')].forEach(id => {
+            const dl = document.getElementById(id);
+            if (!dl || [...dl.options].some(o => o.value.toLowerCase() === species.toLowerCase())) return;
+            const o = document.createElement('option'); o.value = species; dl.appendChild(o);
+        });
+    }
+    function growSpeciesLists() {
+        EXTRA_SPECIES.forEach(e => addSpeciesOption(e.species, e.group));
+        Object.values(predictions).forEach(p => p.det && addSpeciesOption(p.species, p.group));
+        Object.values(validationState).forEach(s => s && s.true_detection === true && addSpeciesOption(s.species, s.taxon_group));
+    }
     const keyOf = t => `${t.bruv_station}_${t.video_id}_${t.track_id}`;
     const pageKeys = new Set(trackData.map(keyOf));
     // One storage key per page: file:// pages share one localStorage, so a shared key mixed answers between pages
@@ -837,10 +855,11 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
         loadProgress();  // This will merge embedded + localStorage
+        growSpeciesLists();
         if (!hasPredictions) document.querySelectorAll('.pred-only').forEach(e => e.style.display = 'none');
         populateFilters();
         // With predictions, open on the cards still to do; a page whose cards are all judged (e.g. a second-check pile) opens on All
-        if (hasPredictions && trackData.some(t => isPending(keyOf(t))))
+        if (hasPredictions && trackData.some(t => isToDo(keyOf(t))))
             document.getElementById('filterValidation').value = 'todo';
         updateFilterCascade('validation');  // Populate taxon/species dropdowns based on actual data
         applyFilters();  // honours the default view chosen above
@@ -879,7 +898,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         const n = {};
         trackData.forEach(t => {
             const k = keyOf(t), p = predictions[k];
-            if (isPending(k)) n[p.label] = (n[p.label] || 0) + 1;
+            if (p && isToDo(k)) n[p.label] = (n[p.label] || 0) + 1;
         });
         const sel = document.getElementById('filterPred'), cur = sel.value;
         const total = Object.values(n).reduce((a, b) => a + b, 0);
@@ -1051,6 +1070,15 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         if (!p || s.label_source === 'human' || s.label_source === 'prediction_accepted') return false;
         if (s.true_detection == null) return true;
         return s.true_detection === p.det && (s.taxon_group || '') === (p.group || '') && !s.species && !!p.species;
+    }
+
+    // To do: no answer; a true detection without a species (choose "Unknown ..." when it cannot be named); or a
+    // prediction still to accept.
+    function isToDo(key) {
+        const s = validationState[key] || {};
+        if (s.true_detection == null) return true;
+        if (s.true_detection === true && !(s.species || '').trim()) return true;
+        return isPending(key);
     }
 
     // Accepting writes the prediction as a reviewed label, tagged label_source = prediction_accepted.
@@ -1310,7 +1338,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                 const hasSuggestion = pred && pred.status === 'suggested' && !isValidated;
 
                 if (validation === 'unvalidated' && isValidated) return false;
-                if (validation === 'todo' && !(isPending(key) || (!predictions[key] && !isValidated))) return false;
+                if (validation === 'todo' && !isToDo(key)) return false;
                 if (validation === 'suggested' && !hasSuggestion) return false;
                 if (validation === 'true' && state?.true_detection !== true) return false;
                 if (validation === 'false' && state?.true_detection !== false) return false;
@@ -1465,7 +1493,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                 const hasSuggestion = pred && pred.status === 'suggested' && !isValidated;
 
                 if (validation === 'unvalidated' && isValidated) return false;
-                if (validation === 'todo' && !(isPending(key) || (!predictions[key] && !isValidated))) return false;
+                if (validation === 'todo' && !isToDo(key)) return false;
                 if (validation === 'suggested' && !hasSuggestion) return false;
                 if (validation === 'true' && state?.true_detection !== true) return false;
                 if (validation === 'false' && state?.true_detection !== false) return false;
@@ -1561,7 +1589,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         let todo = 0;
         trackData.forEach(t => {
             const k = keyOf(t), s = validationState[k];
-            if (hasPredictions && predictions[k] ? isPending(k) : !(s && s.true_detection != null)) todo++;
+            if (isToDo(k)) todo++;
         });
         document.getElementById('liveCount').textContent = `: ${todo.toLocaleString()} to do of ${total.toLocaleString()} tracks`;
         document.getElementById('acceptedCount').textContent = accepted;
@@ -1649,17 +1677,25 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
 
         // Merge localStorage (overwrites embedded if there are conflicts). Only this page's tracks are taken:
         // the old shared key 'sharktrack_validation' holds every page's answers, so it is read for these keys only.
-        let saved = null, legacy = false;
+        // Earlier builds of this page (same title, other track count) are merged first, this build's key last, so an
+        // answer saved before a rebuild still shows.
+        const keys = [];
         try {
-            saved = localStorage.getItem(STORAGE_KEY);
-            if (!saved) { saved = localStorage.getItem('sharktrack_validation'); legacy = !!saved; }
+            const prefix = 'sharktrack_validation::' + document.title + '::';
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.startsWith(prefix) && k !== STORAGE_KEY) keys.push(k);
+            }
+            if (localStorage.getItem(STORAGE_KEY)) keys.push(STORAGE_KEY);
+            else if (!keys.length && localStorage.getItem('sharktrack_validation')) keys.push('sharktrack_validation');
         } catch (e) { console.error('Browser storage unreadable', e); }
-        if (saved) {
-            const localState = JSON.parse(saved);
+        keys.forEach(sk => {
+            let localState = {};
+            try { localState = JSON.parse(localStorage.getItem(sk)) || {}; } catch (e) { return; }
             let n = 0;
             Object.entries(localState).forEach(([k, v]) => { if (pageKeys.has(k)) { validationState[k] = v; n++; } });
-            console.log('Merged localStorage' + (legacy ? ' (old shared key)' : '') + ':', n, 'entries for this page');
-        }
+            console.log('Merged localStorage key', sk, ':', n, 'entries for this page');
+        });
         console.log('Total validation state:', Object.keys(validationState).length, 'entries');
     }
 
@@ -1679,7 +1715,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
             ]);
         });
 
-        const csv = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\\n');
+        const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\\n');
         const blob = new Blob([csv], {type: 'text/csv'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1855,8 +1891,13 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                     input.style.borderColor = '#f39c12';
                     input.title = 'Species from different taxon group';
                 }
-            } else {
-                alert(`"${value}" not recognized.\\n\\nPlease select from the dropdown or verify spelling.`);
+            } else if (window.confirm(`"${value}" is not in the list yet. Add it as a new species for ${groupName}?`)) {
+                // New species: added to this page's lists now; the next rebuild and classifier retrain pick it up from the answers
+                const group = datalistId.replace('speciesList_', '');
+                addSpeciesOption(value, group === 'all' ? 'other' : group);
+                if (key) updateValidation(key, 'species', value);
+                input.style.borderColor = '#27ae60';
+                input.title = 'New species added';
             }
         } else if (match.exact) {
             // Exact match - all good
@@ -1893,8 +1934,17 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
             html_template = '\n'.join(l for l in html_template.split('\n')
                                        if 'loadSmartPredictions()"' not in l and 'applySuggestions()"' not in l)
         preds_json = json.dumps(predictions or {}).replace('</', '<\\/')
+        extra_species = []
+        if species_list:
+            sl = pd.read_csv(species_list, dtype=str, keep_default_na=False)
+            missing = {'species', 'taxon_group'} - set(sl.columns)
+            if missing:
+                raise ValueError(f"--species-list {species_list} lacks columns {sorted(missing)}")
+            extra_species = [{'species': r.species, 'group': r.taxon_group} for r in sl.itertuples() if r.species.strip()]
+            print(f"  Species list: {len(extra_species)} species from {species_list}")
         f.write(html_template.replace('@@PAGE_TITLE@@', html.escape(title)).replace('@@PREDICTIONS@@', preds_json)
-                .replace('@@PRED_CAPTION@@', html.escape(prediction_caption).replace("'", "&#39;")))
+                .replace('@@PRED_CAPTION@@', html.escape(prediction_caption).replace("'", "&#39;"))
+                .replace('@@EXTRA_SPECIES@@', json.dumps(extra_species).replace('</', '<\\/')))
 
     print(f"HTML validation page saved to: {html_path}")
     return html_path
@@ -1924,6 +1974,8 @@ def main():
                              'output folder and its thumbnails; its metadata goes to <name>_thumbnail_metadata.csv')
     parser.add_argument('--prediction-caption', default='Predicted',
                         help="Word shown before each card's prediction (e.g. 'On record' when the CSV holds current labels to confirm)")
+    parser.add_argument('--species-list', help='CSV (species, taxon_group) of every species labelled so far; added to '
+                                                'the species dropdowns')
     parser.add_argument('--existing-validations', help='CSV of answers to show on the cards (default: newest '
                                                        'validation_results*.csv in the output folder)')
     parser.add_argument('--predictions', type=str,
@@ -2002,7 +2054,7 @@ def main():
     predictions = load_predictions(args.predictions, thumb_df) if args and args.predictions else None
     html_path = generate_html_validation(thumb_df, OUTPUT_DIR, title=args.title, predictions=predictions,
                                          html_name=args.html_name, existing_csv=args.existing_validations,
-                                         prediction_caption=args.prediction_caption)
+                                         prediction_caption=args.prediction_caption, species_list=args.species_list)
 
     print("\n" + "=" * 70)
     print("COMPLETE!")
