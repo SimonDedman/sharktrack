@@ -864,13 +864,35 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
     const PRED_CAPTION = '@@PRED_CAPTION@@';
     // Species labelled anywhere so far ({species, group}, from --species-list); added to the dropdowns on load
     const EXTRA_SPECIES = @@EXTRA_SPECIES@@;
+    // Common names: the datalist options below carry them (value = scientific, text = common), plus species added
+    // since; shown everywhere as "Common (Scientific)" (SD 2026-10-16). Stored and exported values stay scientific.
+    const EXTRA_COMMON = {"Echeneis naucrates": "Live sharksucker", "Lutjanus analis": "Mutton snapper",
+        "Mulloidichthys martinicus": "Yellow goatfish", "Rhizoprionodon porosus": "Caribbean sharpnose shark",
+        "Rhizoprionodon terraenovae": "Atlantic sharpnose shark", "Scarus coeruleus": "Blue parrotfish",
+        "Styracura schmardae": "Chupare stingray"};
+    const COMMON = {};
+    function buildCommon() {
+        document.querySelectorAll('datalist option').forEach(o => {
+            const t = (o.textContent || '').trim(), v = (o.value || '').trim();
+            if (t && v && t !== v && !t.includes('(') && !COMMON[v.toLowerCase()]) COMMON[v.toLowerCase()] = t;
+        });
+        Object.entries(EXTRA_COMMON).forEach(([v, t]) => { if (!COMMON[v.toLowerCase()]) COMMON[v.toLowerCase()] = t; });
+        document.querySelectorAll('datalist option').forEach(o => { const n = nm(o.value); if (n !== o.value) o.textContent = n; });
+    }
+    function nm(s) {
+        s = (s || '').trim();
+        const c = COMMON[s.toLowerCase()];
+        if (c) return `${c} (${s})`;
+        const m = s.match(/^([A-Z][a-z]+ [a-z]+)(\s.*)$/);  // a binomial with a suffix, e.g. "Balistes vetula (2nd model)"
+        return m && COMMON[m[1].toLowerCase()] ? `${COMMON[m[1].toLowerCase()]} (${m[1]})${m[2]}` : s;
+    }
     function addSpeciesOption(species, group) {
         species = (species || '').trim();
         if (!species) return;
         ['speciesList_all', 'speciesList_' + (group || 'other')].forEach(id => {
             const dl = document.getElementById(id);
             if (!dl || [...dl.options].some(o => o.value.toLowerCase() === species.toLowerCase())) return;
-            const o = document.createElement('option'); o.value = species; dl.appendChild(o);
+            const o = document.createElement('option'); o.value = species; if (nm(species) !== species) o.textContent = nm(species); dl.appendChild(o);
         });
     }
     function growSpeciesLists() {
@@ -889,6 +911,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
         loadProgress();  // This will merge embedded + localStorage
+        buildCommon();
         growSpeciesLists();
         if (!hasPredictions) document.querySelectorAll('.pred-only').forEach(e => e.style.display = 'none');
         populateFilters();
@@ -921,7 +944,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         const speciesSelect = document.getElementById('filterSpecies');
         speciesSelect.innerHTML += `<option value="__blank__">(Blank / Not specified)</option>`;
         species.forEach(s => {
-            speciesSelect.innerHTML += `<option value="${s}">${s}</option>`;
+            speciesSelect.innerHTML += `<option value="${s}">${nm(s)}</option>`;
         });
     }
 
@@ -938,9 +961,9 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         const total = Object.values(n).reduce((a, b) => a + b, 0);
         let html = `<option value="">All predictions (${total} to judge)</option>`;
         Object.entries(n).sort((a, b) => b[1] - a[1]).forEach(([lab, c]) => {
-            html += `<option value="${lab}">${lab} (${c})</option>`;
+            html += `<option value="${lab}">${nm(lab)} (${c})</option>`;
         });
-        if (cur && cur !== '__none__' && !n[cur]) html += `<option value="${cur}">${cur} (done)</option>`;
+        if (cur && cur !== '__none__' && !n[cur]) html += `<option value="${cur}">${nm(cur)} (done)</option>`;
         html += `<option value="__none__">(no prediction)</option>`;
         sel.innerHTML = html;
         sel.value = cur;
@@ -980,7 +1003,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
     function predictionHtml(key, state) {
         const p = predictions[key];
         if (!p) return '';
-        const name = p.species || (p.det === false ? p.group || p.label : p.label);  // the label reads better than a bare group code
+        const name = p.species ? nm(p.species) : (p.det === false ? p.group || p.label : nm(p.label));  // the label reads better than a bare group code
         const what = p.det === false ? 'not an animal: ' + name : name;
         const pending = isPending(key);
         const status = state.label_source === 'prediction_accepted' ? ' <b>accepted</b>'
@@ -1056,8 +1079,8 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                             `}
                         </select>
                         <input type="text" class="species-input" placeholder="Species..."
-                               value="${state.species || ''}"
-                               onchange="updateValidation('${key}', 'species', this.value)"
+                               value="${state.species || ''}" title="${nm(state.species || '')}"
+                               onchange="updateValidation('${key}', 'species', this.value); this.title = nm(this.value)"
                                onblur="validateSpeciesInput(this, '${key}')"
                                list="speciesList_${state.taxon_group || 'all'}"
                                style="flex: 2;">
@@ -1484,7 +1507,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
             Array.from(speciesList).sort().forEach(sp => {
                 const opt = document.createElement('option');
                 opt.value = sp;
-                opt.textContent = sp;
+                opt.textContent = nm(sp);
                 speciesSelect.appendChild(opt);
             });
 
