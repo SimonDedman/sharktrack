@@ -493,7 +493,14 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         .video-link.copied { background: #00b894; }
         .video-link svg { width: 14px; height: 14px; }
 
-        .batch-checkbox { display: flex; align-items: center; cursor: pointer; }
+        /* The whole bottom of the card, from the tickbox row down, is the tickbox's hit area (SD 2026-10-16) */
+        .card { display: flex; flex-direction: column; }
+        .card-body { flex: 1; display: flex; flex-direction: column; }
+        .batch-checkbox { flex: 1; display: flex; align-items: flex-start; justify-content: center; gap: 6px; cursor: pointer;
+                          min-height: 34px; margin: 6px -10px -8px; padding: 8px 0; border-top: 1px solid #eee;
+                          font-size: 12px; color: #999; user-select: none; }
+        .batch-checkbox:hover { background: #eaf2fb; color: #2c3e50; }
+        .batch-checkbox:has(input:checked) { background: #d6eaf8; color: #2c3e50; }
         .batch-checkbox input { width: 18px; height: 18px; cursor: pointer; }
 
         .batch-toolbar {
@@ -1057,10 +1064,10 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
                         <input type="text" placeholder="Notes..."
                                value="${state.notes || ''}"
                                onchange="updateValidation('${key}', 'notes', this.value)">
-                        <label class="batch-checkbox" title="Select for batch tagging">
-                            <input type="checkbox" class="batch-select" data-key="${key}">
-                        </label>
                     </div>
+                    <label class="batch-checkbox" title="Select for batch tagging (click anywhere in this strip)">
+                        <input type="checkbox" class="batch-select" data-key="${key}"><span>select</span>
+                    </label>
                 </div>
             `;
             return card;
