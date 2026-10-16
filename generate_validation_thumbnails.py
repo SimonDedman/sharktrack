@@ -349,10 +349,12 @@ def load_predictions(predictions_path, tracks_df):
         if key in out:
             raise ValueError(f"{predictions_path}: duplicate prediction for {key}")
         det = str(r.pred_true_detection).strip().lower()
-        if det not in ('true', 'false'):
-            raise ValueError(f"{predictions_path}: pred_true_detection must be true/false, got {r.pred_true_detection!r} for {key}")
+        if det in ('', 'nan'):
+            det = None  # the model abstained ("Unknown, please identify"): shown, nothing to accept
+        elif det not in ('true', 'false'):
+            raise ValueError(f"{predictions_path}: pred_true_detection must be true/false/blank, got {r.pred_true_detection!r} for {key}")
         note = getattr(r, 'pred_note', '')
-        out[key] = {'label': r.pred_label, 'p': float(r.pred_p), 'det': det == 'true',
+        out[key] = {'label': r.pred_label, 'p': float(r.pred_p), 'det': None if det is None else det == 'true',
                     'group': '' if pd.isna(r.pred_taxon_group) else r.pred_taxon_group,
                     'species': '' if pd.isna(r.pred_species) else r.pred_species,
                     'note': '' if pd.isna(note) else str(note)}
@@ -947,7 +949,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
         const p = predictions[key];
         if (!p) return '';
         const name = p.species || p.group || p.label;
-        const what = p.det ? name : 'not an animal: ' + name;
+        const what = p.det === false ? 'not an animal: ' + name : name;
         const pending = isPending(key);
         const status = state.label_source === 'prediction_accepted' ? ' <b>accepted</b>'
                      : state.label_source === 'human' ? ' (set by hand)' : '';
@@ -1067,7 +1069,7 @@ def generate_html_validation(tracks_df, output_dir, title="SharkTrack Validation
     // Cards a person has edited (label_source = human) or already accepted are never overwritten.
     function isPending(key) {
         const p = predictions[key], s = validationState[key] || {};
-        if (!p || s.label_source === 'human' || s.label_source === 'prediction_accepted') return false;
+        if (!p || p.det == null || s.label_source === 'human' || s.label_source === 'prediction_accepted') return false;
         if (s.true_detection == null) return true;
         return s.true_detection === p.det && (s.taxon_group || '') === (p.group || '') && !s.species && !!p.species;
     }
