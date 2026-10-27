@@ -80,6 +80,7 @@ class ParallelSpeciesClassifier:
         self.shutdown_event = threading.Event()
         self.worker_thread = None
         self.video_path_prefix = None
+        self.submitted = 0
 
     def start(self, video_path_prefix: str):
         """Start the background classification worker"""
@@ -106,10 +107,17 @@ class ParallelSpeciesClassifier:
 
     def submit_task(self, task: ClassificationTask):
         """Submit a detection for classification"""
-        try:
-            self.task_queue.put(task, timeout=1)
-        except queue.Full:
-            print("Warning: Classification queue full, dropping task")
+        # Backpressure: block until a slot frees. Never drop a task silently.
+        # Fail closed if the worker has died, since nothing would drain the queue.
+        while True:
+            try:
+                self.task_queue.put(task, timeout=1)
+                self.submitted += 1
+                return
+            except queue.Full:
+                if self.worker_thread is None or not self.worker_thread.is_alive():
+                    raise RuntimeError(
+                        f"Classification worker is not running; cannot enqueue row {task.row_index}")
 
     def get_results(self) -> List[BatchResult]:
         """Get all available classification results"""
